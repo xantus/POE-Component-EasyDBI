@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.03 $))[1];
+our $VERSION = (qw($Revision: 0.04 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -258,7 +258,11 @@ sub db_handler {
 	}
 
 	# Add some stuff to the args
-	$args->{session} = $_[SENDER]->ID();
+	# defaults to sender, but can be specified
+	unless ($args->{session}) {
+		$args->{session} = $_[SENDER]->ID();
+	}
+	
 	$args->{action} = $_[STATE];
 
 	if ( ! exists $args->{event} ) {
@@ -954,6 +958,21 @@ This is the max number of times the database wheel will be restarted, default is
 
 There is only a few events you can trigger in EasyDBI.
 They all share a common argument format, except for the shutdown event.
+
+
+Note: you can change the session that the query posts back to, it uses $_[SENDER]
+as the default.
+
+For example:
+
+	$kernel->post( 'EasyDBI',
+		quote => {
+				sql => 'foo$*@%%sdkf"""',
+				event => 'quoted_handler',
+				session => 'dbi_helper', # or you can use a session id
+		}
+	);
+
 
 =over 4
 

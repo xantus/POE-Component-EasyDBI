@@ -1,5 +1,8 @@
 Revision history for POE::Component::EasyDBI.
 
+0.04 Thu Sep 23 11:25:00 2004
+	- added ability to specify session id
+
 0.03 Mon Jan 02 10:07:00 2004
 	- 'bout time I fixed that bug that came from using SimpleDBI as my base :)
 
