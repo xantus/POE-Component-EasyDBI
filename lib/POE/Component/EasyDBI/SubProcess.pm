@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.06 $))[1];
+our $VERSION = (qw($Revision: 0.07 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -35,19 +35,28 @@ sub main {
 
 	$self->{lastpingtime} = time();
 
+	unless (defined($self->{sig_ignore_off})) {
+		$SIG{INT} = $SIG{TERM} = $SIG{HUP} = 'IGNORE';
+	}
+
 	if (defined($self->{use_cancel})) {
 		# Signal INT causes query cancel
 		# XXX disabled for now
 		#$SIG{INT} = sub { if ($sth) { $sth->cancel; } };
 	}
 
-#	print STDERR "[1] connecting\n";
 	while (!$self->connect()) {	}
 
 	return if ($self->{done});
 
 	# check for data in queue first
 	$self->process();
+
+	if ($self->{done}) {
+		if ($self->{dbh}) {
+			$self->{dbh}->disconnect();
+		}
+	}
 
 	# listen for commands from our parent
 	READ: while ( sysread( STDIN, my $buffer = '', 1024 ) ) {
@@ -67,6 +76,7 @@ sub main {
 		# process all in the queue until a problem occurs or done
 		REDO:
 		unless ($self->process()) {
+			last READ if ($self->{done});
 			# oops problem...
 			if ($self->{reconnect}) {
 				# need to reconnect
@@ -146,10 +156,10 @@ sub process {
 	foreach my $input (shift(@{$self->{queue}})) {
 		$input->{action} = lc($input->{action});
 		# Now, we do the actual work depending on what kind of query it was
-		if ( $input->{action} eq 'exit' ) {
+		if ($input->{action} eq 'exit') {
 			# Disconnect!
-			$self->{dbh}->disconnect();
-			return 1;
+			$self->{done} = 1;
+			return 0;
 		}
 
 		my $now = time();

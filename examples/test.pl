@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-use lib qw(../blib ../lib);
+use lib qw(../lib);
 
 use POE qw(Component::EasyDBI);
 

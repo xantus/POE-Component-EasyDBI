@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.06 $))[1];
+our $VERSION = (qw($Revision: 0.07 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -64,6 +64,7 @@ sub new {
 		reconnect_wait
 		connected
 		no_warnings
+		sig_ignore_off
 	);
 	
 	# check the DSN
@@ -248,7 +249,7 @@ sub shutdown_poco {
 		}
 	} else {
 		# Remove our alias so we can be properly terminated
-		$kernel->alias_remove($heap->{alias});
+		$kernel->alias_remove();
 	}
 
 	# Check if we got "NOW"
@@ -715,7 +716,7 @@ sub child_STDERR {
 	# Skip empty lines as the POE::Filter::Line manpage says...
 	if ($input eq '') { return }
 
-	return if ($_[HEAP]->{opts}->{no_warnings});
+#return if ($_[HEAP]->{opts}->{no_warnings});
 
 	warn "$input\n";
 }
