@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.09 $))[1];
+our $VERSION = (qw($Revision: 0.10 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -23,15 +23,19 @@ sub DEBUG () { 0 }
 # Autoflush on STDOUT
 # Select returns last selected handle
 # So, reselect it after selecting STDOUT and setting Autoflush
-select((select(STDOUT), $| = 1)[0]);
-
-sub create {
-	return &new;
-}
+#select((select(STDOUT), $| = 1)[0]);
 
 sub new {
-	# Get the class - not used yet
-	my $class = shift;
+	my $s = &spawn;
+	return bless({ ID => $s->ID },$_[0]);
+}
+
+sub create {
+	&spawn;
+}
+
+sub spawn {
+	shift; # class
 
 	# The options hash
 	my %opt;
@@ -43,7 +47,7 @@ sub new {
 		# Sanity checking
 		if (@_ & 1) {
 			croak('POE::Component::EasyDBI requires an even number of options '
-			.'passed to new() call');
+			.'passed to new()/spawn() call');
 		}
 		%opt = @_;
 	}
@@ -72,19 +76,19 @@ sub new {
 	# username/password/port other options
 	# should be part of the DSN
 	if (!exists($opt{dsn})) {
-		croak('DSN is required to create a new POE::Component::EasyDBI '
+		croak('DSN is required to spawn a new POE::Component::EasyDBI '
 		.'instance!');
 	}
 
 	# check the USERNAME
 	if (!exists($opt{username})) {
-		croak('username is required to create a new POE::Component::EasyDBI '
+		croak('username is required to spawn a new POE::Component::EasyDBI '
 		.'instance!');
 	}
 
 	# check the PASSWORD
 	if (!exists($opt{password})) {
-		croak('password is required to create a new POE::Component::EasyDBI '
+		croak('password is required to spawn a new POE::Component::EasyDBI '
 			.'instance!');
 	}
 
@@ -244,11 +248,8 @@ sub new {
 			},
 		},
 	) or die 'Unable to create a new session!';
-
-	# Return success
-	return 1;
 }
- 
+
 # This subroutine handles shutdown signals
 sub shutdown_poco {
 	my ($kernel, $heap) = @_[KERNEL,HEAP];
@@ -267,7 +268,7 @@ sub shutdown_poco {
 		}
 	} else {
 		# Remove our alias so we can be properly terminated
-		$kernel->alias_remove();
+		$kernel->alias_remove() if ($heap->{alias} ne '');
 	}
 
 	# Check if we got "NOW"
@@ -524,7 +525,7 @@ sub start {
 	my ($kernel, $heap) = @_[KERNEL,HEAP];
 	
 	# Set up the alias for ourself
-	$kernel->alias_set($heap->{alias});
+	$kernel->alias_set($heap->{alias}) if ($heap->{alias} ne '');
 
 	# Create the wheel
 	$kernel->yield('setup_wheel');
@@ -811,8 +812,28 @@ sub child_STDERR {
 	warn "$input\n";
 }
 
+# ----------------
+# Object methods
+
+sub ID {
+	my $self = shift;
+	return $self->{ID};
+}
+
+# not called directly
+sub DESTROY {
+	my $self = shift;
+	if (ref($self) && $self->ID) {
+		$poe_kernel->post($self->ID => 'shutdown' => @_);
+	} else {
+		return undef;
+	}
+}
+
 # End of module
 1;
+
+# egg: I like Sealab 2021. This is why you can see lots of 2021 refences in my code.
 
 #=item C<use_cancel>
 #
@@ -828,10 +849,10 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 
 =head1 SYNOPSIS
 
-	use POE qw( POE::Component::EasyDBI );
+	use POE qw( Component::EasyDBI );
 
 	# Set up the DBI
-	POE::Component::EasyDBI->new(
+	POE::Component::EasyDBI->spawn( # or new(), witch returns an obj
 		alias		=> 'EasyDBI',
 		dsn		=> 'DBI:mysql:database=foobaz;host=192.168.1.100;port=3306',
 		username	=> 'user',
@@ -884,7 +905,7 @@ The standard way to use this module is to do this:
 	use POE;
 	use POE::Component::EasyDBI;
 
-	POE::Component::EasyDBI->new( ... );
+	POE::Component::EasyDBI->spawn( ... );
 
 	POE::Session->create( ... );
 
@@ -892,11 +913,11 @@ The standard way to use this module is to do this:
 
 =head2 Starting EasyDBI
 
-To start EasyDBI, just call it's new method. ( create also works )
+To start EasyDBI, just call it's spawn method. (or new for an obj)
 
 This one is for Postgresql:
 
-	POE::Component::EasyDBI->new(
+	POE::Component::EasyDBI->spawn(
 		alias		=> 'EasyDBI',
 		dsn			=> 'DBI:Pg:dbname=test;host=10.0.1.20',
 		username	=> 'user',
@@ -905,7 +926,7 @@ This one is for Postgresql:
 
 This one is for mysql:
 
-	POE::Component::EasyDBI->new(
+	POE::Component::EasyDBI->spawn(
 		alias		=> 'EasyDBI',
 		dsn			=> 'DBI:mysql:database=foobaz;host=192.168.1.100;port=3306',
 		username	=> 'user',
@@ -920,6 +941,10 @@ driver used, NOT EasyDBI
 NOTE: If the SubProcess could not connect to the DB, it will return an error,
 causing EasyDBI to croak/die.
 
+NOTE: Starting with version .10, I've changed new() to return a EasyDBI object
+and spawn() returns a session reference.  Also, create() is the same as spawn().
+See L<OBJECT METHODS>.
+
 This constructor accepts 6 different options.
 
 =over 4
@@ -927,7 +952,10 @@ This constructor accepts 6 different options.
 =item C<alias>
 
 This will set the alias EasyDBI uses in the POE Kernel.
-This will default TO "EasyDBI"
+This will default TO "EasyDBI" if undef
+
+If you do not want to use aliases, specify '' as the ailas.  This helps when
+spawning many EasyDBI objects. See L<OBJECT METHODS>.
 
 =item C<dsn>
 
@@ -1076,7 +1104,8 @@ or
 
 =item C<single>
 
-	This query is for those queries where you will get exactly 1 row and column back.
+	This query is for those queries where you will get exactly one row and
+	column back.
 
 	Internally, it does this:
 
@@ -1104,7 +1133,8 @@ or
 
 =item C<arrayhash>
 
-	This query is for those queries where you will get more than 1 row and column back.
+	This query is for those queries where you will get more than one row and
+	column back.
 
 	Internally, it does this:
 
@@ -1135,7 +1165,8 @@ or
 
 =item C<hashhash>
 
-	This query is for those queries where you will get more than 1 row and column back.
+	This query is for those queries where you will get more than one row and
+	column back.
 
 	The primary_key should be UNIQUE! If it is not, then use hasharray instead.
 
@@ -1183,7 +1214,8 @@ or
 
 =item C<hasharray>
 
-	This query is for those queries where you will get more than 1 row and column back.
+	This query is for those queries where you will get more than one row 
+	and column back.
 
 	Internally, it does something like this:
 
@@ -1229,7 +1261,8 @@ or
 
 =item C<array>
 
-	This query is for those queries where you will get more than 1 row with 1 column back.
+	This query is for those queries where you will get more than one row with
+	one column back.
 
 	Internally, it does this:
 
@@ -1258,13 +1291,15 @@ or
 	The Success Event handler will get a hash in ARG0:
 	{
 		sql				=>	SQL sent
-		result			=>	Array of scalars (joined with seperator if more than one column is returned)
+		result			=>	Array of scalars (joined with seperator if more
+			than one column is returned)
 		placeholders	=>	Original placeholders
 	}
 
 =item C<hash>
 
-	This query is for those queries where you will get 1 row with more than 1 column back.
+	This query is for those queries where you will get one row with more than
+	one column back.
 
 	Internally, it does this:
 
@@ -1297,7 +1332,8 @@ or
 
 =item C<keyvalhash>
 
-	This query is for those queries where you will get 1 row with more than 1 column back.
+	This query is for those queries where you will get one row with more than
+	one column back.
 
 	Internally, it does this:
 
@@ -1408,13 +1444,15 @@ or
 	NOTE: This will NOT let the outstanding queries finish!
 	Any queries running will be lost!
 
-	Due to the way POE's queue works, this shutdown event will take some time to propagate POE's queue.
-	If you REALLY want to shut down immediately, do this:
+	Due to the way POE's queue works, this shutdown event will take some time
+	to propagate POE's queue. If you REALLY want to shut down immediately, do
+	this:
 
 	$kernel->call( 'EasyDBI', 'shutdown' => 'NOW' );
 
-	ALL shutdown NOW's send kill -9 to thier children, beware of any transactions that you may be in.
-	Your queries will revert if you are in transaction mode
+	ALL shutdown NOW's send kill -9 to thier children, beware of any 
+	transactions that you may be in. Your queries will revert if you are in
+	transaction mode
 
 =back
 
@@ -1442,14 +1480,15 @@ You can skip this if your query does not use placeholders in it.
 
 =item C<event>
 
-This is the success/failure event, triggered whenever a query finished successfully or not.
+This is the success/failure event, triggered whenever a query finished
+successfully or not.
 
 It will get a hash in ARG0, consult the specific queries on what you will get.
 
 ***** NOTE *****
 
-In the case of an error, the key 'error' will have the specific error that occurred
-Always, always, _always_ check for this in this event.
+In the case of an error, the key 'error' will have the specific error that
+occurred.  Always, always, _always_ check for this in this event.
 
 ***** NOTE *****
 
@@ -1458,7 +1497,8 @@ Always, always, _always_ check for this in this event.
 Query types single, and array accept this parameter.
 The default is a comma (,) and is optional
 
-If a query has more than 1 column returned, the columns are joined with 'seperator'.
+If a query has more than one column returned, the columns are joined with
+the 'seperator'.
 
 =item C<primary_key>
 
@@ -1469,13 +1509,57 @@ It is used to key the hash on a certain field
 
 All multi-row queries can be chunked.
 
-You can pass the parameter 'chunked' with a number of rows to fire the 'event' event
-for every 'chunked' rows, it will fire the 'event' event. ( a 'chunked' key will exist )
-A 'last_chunk' key will exist when you have received the last chunk of data from the query
+You can pass the parameter 'chunked' with a number of rows to fire the 'event'
+event for every 'chunked' rows, it will fire the 'event' event. (a 'chunked'
+key will exist) A 'last_chunk' key will exist when you have received the last
+chunk of data from the query
 
 =item C<last_insert_id>
 
 See the insert event for a example of its use.
+
+=item (arbitrary data)
+
+You can pass custom keys and data not mentioned above, BUT I suggest using a
+prefix like _ in front of your custom keys.  For example:
+
+    $_[KERNEL->post( 'EasyDBI',
+    	do => {
+    		sql => 'DELETE FROM sessions WHERE ip = ?',
+    		placeholders => [ $ip ],
+    		_ip => $ip,
+    		_port => $port,
+    		_filehandle => $fh,
+    	}
+	);
+
+If I were to add an option 'filehandle' (for importing data from a file for 
+instance) you don't want an upgrade to produce BAD results.
+
+=back
+
+=head2 OBJECT METHODS
+
+When using new() to spawn/create the EasyDBI object, you can use the methods
+listed below
+
+NOTE: The object interface will be improved in later versions, please send
+suggestions to the author.
+
+=over 4
+
+=item C<ID>
+
+This retrieves the session ID.  When managing a pool of EasyDBI objects, you
+can set the alias to '' (nothing) and retrieve the session ID in this manner.
+
+    $self->ID
+
+=item C<DESTROY>
+
+This will shutdown EasyDBI.
+
+    $self->DESTROY
 
 =back
 
@@ -1485,7 +1569,7 @@ See the insert event for a example of its use.
 	use POE::Component::EasyDBI;
 
 	# Set up the DBI
-	POE::Component::EasyDBI->new(
+	POE::Component::EasyDBI->spawn(
 		alias		=> 'EasyDBI',
 		dsn			=> 'DBI:mysql:database=foobaz;host=192.168.1.100;port=3306',
 		username	=> 'user',
@@ -1761,7 +1845,7 @@ This module will try to keep the SubProcess alive.
 if it dies, it will open it again for a max of 5 retries by
 default, but you can override this behavior by doing something like this:
 
-POE::Component::EasyDBI->new( max_retries => 3 );
+POE::Component::EasyDBI->spawn( max_retries => 3 );
 
 =head2 EXPORT
 

@@ -66,6 +66,7 @@ POE::Session->create(
 					sql => 'INSERT INTO testing (testid,sendtime) VALUES(?,?)',
 					event => 'insert_handler',
 					placeholders => [ $heap->{session}++, time() ],
+					extra_data => 2021,
 				}
 			);
 			print ".";
@@ -83,6 +84,7 @@ POE::Session->create(
 			if ($i->{error}) {
 				print "$i->{error}\n";
 			}
+			# extra data is in $i->{extra_data} (from insert event)
 			print ":";
 		},
 		connect_error => sub {

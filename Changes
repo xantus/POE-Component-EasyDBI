@@ -1,5 +1,15 @@
 Revision history for POE::Component::EasyDBI.
 
+0.10 Wed Feb 16 14:41:00 2005
+	- moved select(STDERR) stuff to main() in subprocess.pm, oops :)
+	- added object methods, new() returns an object
+	- changed the way the subprocess is spawned
+		It runs as a seperate process but not forked. Thanks Apocalypse
+	- disabled DBD::AnyData tests because DBD::File is broken
+	- fixed docs
+	- documented arbitrary data passing
+	
+
 0.09 Wed Dec 22 09:04:00 2004
 	- fixed bug in error checking on inserts
 	- documeted max_retries => -1

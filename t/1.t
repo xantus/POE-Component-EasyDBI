@@ -15,13 +15,14 @@ BEGIN {
 SKIP: {
 	eval "use DBD::AnyData";
 	my $have_anydata = ($@) ? 0 : 1;
+	skip "skipping DBD::AnyData tests due to DBD::File being broken", 12;
 	skip "DBD::AnyData not installed", 12 unless $have_anydata;
 
 	POE::Session->create(
 		inline_states => {
 			_start => sub {
 				$_[KERNEL]->alias_set('test');
-				POE::Component::EasyDBI->new(
+				POE::Component::EasyDBI->spawn(
 					alias => 'db',
 					dsn => 'dbi:AnyData(RaiseError=>1):',
 					no_cache => 1, # don't use cached queries with DBD::AnyData

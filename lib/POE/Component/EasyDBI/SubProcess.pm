@@ -4,7 +4,8 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.09 $))[1];
+# XXX not needed
+#our $VERSION = (qw($Revision: 0.10 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -14,11 +15,6 @@ use POE::Filter::Reference;
 
 # We run the actual DB connection here
 use DBI;
-
-# Autoflush to avoid weirdness
-select((select(STDERR), $| = 1)[0]);
-select((select(STDOUT), $| = 1)[0]);
-select(STDERR);
 
 sub new {
 	my ($class, $opts) = @_;
@@ -33,6 +29,11 @@ sub new {
 # This is the subroutine that will get executed upon the fork() call by our parent
 sub main {
 	my $self = __PACKAGE__->new(shift);
+	
+	# Autoflush to avoid weirdness
+	select((select(STDOUT), $| = 1)[0]);
+	select(STDERR);
+	$|++;
 
 	$self->{lastpingtime} = time();
 
@@ -326,6 +327,8 @@ sub do_method {
 		# Make output include the results
 		$self->{output} = { result => $result, id => $data->{id} };
 	}
+	
+	return;
 }
 
 # This subroutine does a DB QUOTE
@@ -350,6 +353,7 @@ sub db_quote {
 		# Make output include the results
 		$self->{output} = { result => $quoted, id => $data->{id} };
 	}
+	return;
 }
 
 # This subroutine runs a 'SELECT ... LIMIT 1' style query on the db
@@ -423,6 +427,7 @@ sub db_single {
 		$sth->finish();
 	}
 
+	return;
 }
 
 # This subroutine does an insert into the db
@@ -495,7 +500,11 @@ sub db_insert {
 				try {
 					$rows_affected = $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
-					die $sth->errstr;
+					if (defined($sth->errstr)) {
+						die $sth->errstr;
+					} else {
+						die "error when trying to execute bind of placeholders in insert: $_[0]";
+					}
 				};
 				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
 			}
@@ -569,6 +578,8 @@ sub db_insert {
 	if (defined($sth)) {
 		$sth->finish();
 	}
+	
+	return;
 }
 
 # This subroutine runs a 'DO' style query on the db
@@ -629,6 +640,8 @@ sub db_do {
 	if (defined($sth)) {
 		$sth->finish();
 	}
+	
+	return;
 }
 
 sub db_arrayhash {
@@ -730,6 +743,8 @@ sub db_arrayhash {
 	if (defined($sth)) {
 		$sth->finish();
 	}
+	
+	return;
 }
 
 sub db_hashhash {
@@ -857,6 +872,8 @@ sub db_hashhash {
 	if (defined($sth)) {
 		$sth->finish();
 	}
+	
+	return;
 }
 
 sub db_hasharray {
@@ -977,6 +994,8 @@ sub db_hasharray {
 	if (defined($sth)) {
 		$sth->finish();
 	}
+	
+	return;
 }
 
 sub db_array {
@@ -1079,6 +1098,8 @@ sub db_array {
 	if (defined($sth)) {
 		$sth->finish();
 	}
+	
+	return;
 }
 
 sub db_hash {
@@ -1160,6 +1181,8 @@ sub db_hash {
 	if (defined($sth)) {
 		$sth->finish();
 	}
+
+	return;
 }
 
 sub db_keyvalhash {
@@ -1254,6 +1277,8 @@ sub db_keyvalhash {
 	if (defined($sth)) {
 		$sth->finish();
 	}
+	
+	return;
 }
 
 # Prints any output to STDOUT
@@ -1275,6 +1300,8 @@ sub output {
 
 	# Print it!
 	print STDOUT @$outdata;
+	
+	return;
 }
 
 1;
