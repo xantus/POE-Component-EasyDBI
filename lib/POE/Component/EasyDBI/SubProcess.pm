@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.07 $))[1];
+our $VERSION = (qw($Revision: 0.08 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -18,6 +18,7 @@ use DBI;
 # Autoflush to avoid weirdness
 select((select(STDERR), $| = 1)[0]);
 select((select(STDOUT), $| = 1)[0]);
+select(STDERR);
 
 sub new {
 	my ($class, $opts) = @_;
@@ -39,11 +40,11 @@ sub main {
 		$SIG{INT} = $SIG{TERM} = $SIG{HUP} = 'IGNORE';
 	}
 
-	if (defined($self->{use_cancel})) {
+#	if (defined($self->{use_cancel})) {
 		# Signal INT causes query cancel
 		# XXX disabled for now
 		#$SIG{INT} = sub { if ($sth) { $sth->cancel; } };
-	}
+#	}
 
 	while (!$self->connect()) {	}
 
@@ -56,6 +57,7 @@ sub main {
 		if ($self->{dbh}) {
 			$self->{dbh}->disconnect();
 		}
+		return;
 	}
 
 	# listen for commands from our parent
@@ -89,11 +91,19 @@ sub main {
 			}
 		}
 	}
-
 	# Arrived here due to error in sysread/etc
 	if ($self->{dbh}) {
 		$self->{dbh}->disconnect();
+		delete $self->{dbh};
 	}
+	# debug :)
+#	require POE::API::Peek;
+#	my $p = POE::API::Peek->new();
+#	my @sessions = $p->session_list();
+#	require Data::Dumper;
+#	open(FH,">db.txt");
+#	print FH Data::Dumper->Dump([\@sessions]);
+#	close(FH);
 }
 
 sub connect {
@@ -124,7 +134,7 @@ sub connect {
 		);
 
 		# Check for undefined-ness
-		if ( ! defined $self->{dbh} ) {
+		if (!defined($self->{dbh})) {
 			die "Error Connecting to Database: $DBI::errstr";
 		}
 	} catch Error with {
@@ -194,12 +204,23 @@ sub process {
 			# put the query back on the stack
 			unshift(@{$self->{queue}},$input);
 			# and reconnect
-			$self->{dbh}->disconnect();
+			eval { $self->{dbh}->disconnect(); };
 			$self->{reconnect} = 1;
 			return 0;
 		}
 
-		if ( $input->{action} eq 'insert' ) {
+		if (defined($self->{no_cache}) && !defined($input->{no_cache})) {
+			$input->{no_cache} = $self->{no_cache};
+		}
+
+		if ( $input->{action} eq 'func' ) {
+			# Special command to support DBD::AnyData
+			$input->{method} = 'func';
+			$self->do_method( $input );
+		} elsif ( $input->{action} eq 'method') {
+			# Special command to do $dbh->$method->()
+			$self->do_method( $input );
+		} elsif ( $input->{action} eq 'insert' ) {
 			# Fire off the SQL and return success/failure + rows affected and insert id
 			$self->db_insert( $input );
 		} elsif ( $input->{action} eq 'do' ) {
@@ -241,8 +262,9 @@ sub process {
 			|| $self->{output}->{error} =~ m/server has gone away/i
 			|| $self->{output}->{error} =~ m/server closed the connection/i
 			|| $self->{output}->{error} =~ m/connect failed/i))) {
+			
 			unshift(@{$self->{queue}},$input);
-			$self->{dbh}->disconnect();
+			eval { $self->{dbh}->disconnect(); };
 			$self->{reconnect} = 1;
 			return 0;
 		}
@@ -277,6 +299,35 @@ sub make_error {
 	return $data;
 }
 
+# This subroute is for supporting any type of $dbh->$method->() calls
+sub do_method {
+	# Get the dbi handle
+	my $self = shift;
+
+	# Get the input structure
+	my $data = shift;
+
+	# The result
+	my $result = undef;
+	
+	my $method = $data->{method};
+	my $dbh = $self->{dbh};
+
+	# Catch any errors
+	try {
+		$result = $dbh->$method(@{$data->{args}});
+		
+	} catch Error with {
+		$self->{output} = $self->make_error( $data->{id}, shift );
+	};
+
+	# Check if we got any errors
+	if (!defined($self->{output})) {
+		# Make output include the results
+		$self->{output} = { result => $result, id => $data->{id} };
+	}
+}
+
 # This subroutine does a DB QUOTE
 sub db_quote {
 	my $self = shift;
@@ -295,7 +346,7 @@ sub db_quote {
 	};
 
 	# Check for errors
-	if ( ! defined $self->{output} ) {
+	if (!defined($self->{output})) {
 		# Make output include the results
 		$self->{output} = { result => $quoted, id => $data->{id} };
 	}
@@ -330,7 +381,7 @@ sub db_single {
 		}
 
 		# Check for undef'ness
-		if ( ! defined $sth ) {
+		if (!defined($sth)) {
 			die 'Did not get a statement handler';
 		} else {
 			# Execute the query
@@ -382,59 +433,87 @@ sub db_insert {
 	# Get the input structure
 	my $data = shift;
 
-	my $dsn = shift;
+	my $dsn = $self->{dsn} || '';
 
 	# Variables we use
 	my $sth = undef;
 	my $rows_affected = undef;
 
+	my @queries;
+	my @placeholders;
+	
+	# XXX depricate hash for insert
+	if (defined($data->{hash}) && !defined($data->{insert})) {
+		$data->{insert} = delete $data->{hash};
+	}
+		
+	if (defined($data->{insert}) && ref($data->{insert}) eq 'HASH') {
+		$data->{insert} = [$data->{insert}];
+	}
+	
 	# Check if this is a non-insert statement
-	if (ref($data->{hash}) eq 'HASH') {
-		# sort so we always get a consistant list of fields in the errors :)
-		my @fields = sort keys %{$data->{hash}};
-		# adjust the placeholders, they should know that placeholders passed in are irrelevant
-		# XXX maybe subtypes when a hash value is a HASH or ARRAY?
-		$data->{placeholders} = [ map { $data->{hash}->{$_} } @fields ];
-		my @holders = map { '?' } @fields;
-		$data->{sql} = "INSERT INTO $data->{table} (".join(',',@fields).") VALUES (".join(',',@holders).")";
-	} elsif ( $data->{sql} !~ /^INSERT/i ) {
+	if (defined($data->{insert}) && ref($data->{insert}) eq 'ARRAY') {
+		delete $data->{placeholders};
+		delete $data->{sql};
+		foreach my $hash (@{$data->{insert}}) {
+			# sort so we always get a consistant list of fields in the errors and placeholders
+			my @fields = sort keys %{$hash};
+			# adjust the placeholders, they should know that placeholders passed in are irrelevant
+			# XXX subtypes when a hash value is a HASH or ARRAY?
+			push(@placeholders,[ map { $hash->{$_} } @fields ]);
+			push(@queries,"INSERT INTO $data->{table} ("
+				.join(',',@fields).") VALUES (".join(',',(map { '?' } @fields)).")");
+		}
+	} elsif (!defined($data->{sql}) || $data->{sql} !~ /^INSERT/i ) {
 		$self->{output} = $self->make_error( $data->{id}, "INSERT is for INSERTS only! ( $data->{sql} )" );
 		return;
+	} else {
+		push(@queries,$data->{sql});
+		push(@placeholders,$data->{placeholders});
 	}
 
-	# Catch any errors
-	try {
-		# Make a new statement handler and prepare the query
-		if ($data->{no_cache}) {
-			$sth = $self->{dbh}->prepare( $data->{sql} );
-		} else {
-			# We use the prepare_cached method in hopes of hitting a cached one...
-			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
-		}
+	for my $i ( 0 .. $#queries ) {
+		$data->{sql} = $queries[$i];
+		$data->{placeholders} = $placeholders[$i];
 
-		# Check for undef'ness
-		if ( ! defined $sth ) {
-			die 'Did not get a statement handler';
-		} else {
-			# Execute the query
-			try {
-				$rows_affected = $sth->execute( @{ $data->{placeholders} } );
-			} catch Error with {
-				die $sth->errstr;
-			};
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-		}
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift );
-	};
-
+		# Catch any errors
+		try {
+			# Make a new statement handler and prepare the query
+			if ($data->{no_cache}) {
+				$sth = $self->{dbh}->prepare( $data->{sql} );
+			} else {
+				# We use the prepare_cached method in hopes of hitting a cached one...
+				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+			}
+	
+			# Check for undef'ness
+			if (!defined($sth)) {
+				die 'Did not get a statement handler';
+			} else {
+				# Execute the query
+				try {
+					$rows_affected = $sth->execute( @{ $data->{placeholders} } );
+				} catch Error with {
+					die $sth->errstr;
+				};
+				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+			}
+		} catch Error with {
+			my $e = shift;
+			$self->{output} = $self->make_error( $data->{id}, "failed at query #$i : $e" );
+			last;
+		};
+	}
 
 	# If rows_affected is not undef, that means we were successful
-	if ( defined $rows_affected && ! defined($self->{output})) {
+	if (defined($rows_affected) && !defined($self->{output})) {
 		# Make the data structure
 		$self->{output} = { rows => $rows_affected, result => $rows_affected, id => $data->{id} };
 		
 		unless ($data->{last_insert_id}) {
+			if (defined($sth)) {
+				$sth->finish();
+			}
 			return;
 		}
 		# get the last insert id
@@ -448,6 +527,9 @@ sub db_insert {
 				} elsif ($dsn =~ m/dbi:mysql/i) {
 					if (defined($self->{dbh}->{'mysql_insertid'})) {
 						$self->{output}->{insert_id} = $self->{dbh}->{'mysql_insertid'};
+						if (defined($sth)) {
+							$sth->finish();
+						}
 						return;
 					} else {
 						$qry = 'SELECT LAST_INSERT_ID()';
@@ -461,6 +543,9 @@ sub db_insert {
 				# they are supplying thier own query
 				$qry = $data->{last_insert_id};
 			}
+			if (defined($sth)) {
+				$sth->finish();
+			}
 			try {
 				$self->{output}->{insert_id} = $self->{dbh}->selectrow_array($qry);
 			} catch Error with {
@@ -472,14 +557,14 @@ sub db_insert {
 			# special case, insert was ok, but last_insert_id errored
 			$self->{output}->{error} = shift;
 		};
-	} elsif ( !defined $rows_affected && !defined($self->{output})) {
+	} elsif (!defined($rows_affected) && !defined($self->{output})) {
 		# Internal error...
 		$self->{output} = $self->make_error( $data->{id}, 'Internal Error in db_do of EasyDBI Subprocess' );
 		#die 'Internal Error in db_do';
 	}
 
 	# Finally, we clean up this statement handle
-	if ( defined $sth ) {
+	if (defined($sth)) {
 		$sth->finish();
 	}
 }
@@ -513,7 +598,7 @@ sub db_do {
 		}
 
 		# Check for undef'ness
-		if ( ! defined $sth ) {
+		if (!defined($sth)) {
 			die 'Did not get a statement handler';
 		} else {
 			# Execute the query
@@ -529,17 +614,17 @@ sub db_do {
 	};
 
 	# If rows_affected is not undef, that means we were successful
-	if ( defined $rows_affected && !defined($self->{output})) {
+	if (defined($rows_affected) && !defined($self->{output})) {
 		# Make the data structure
-		$self->{output} = { result => $rows_affected, rows => $rows_affected, id => $data->{id} };
-	} elsif ( ! defined $rows_affected && !defined $self->{output}) {
+		$self->{output} = { rows => $rows_affected, result => $rows_affected, id => $data->{id} };
+	} elsif (!defined($rows_affected) && !defined($self->{output})) {
 		# Internal error...
 		$self->{output} = $self->make_error( $data->{id}, 'Internal Error in db_do of EasyDBI Subprocess' );
 		#die 'Internal Error in db_do';
 	}
 
 	# Finally, we clean up this statement handle
-	if ( defined $sth ) {
+	if (defined($sth)) {
 		$sth->finish();
 	}
 }
@@ -572,7 +657,7 @@ sub db_arrayhash {
 		}
 		
 		# Check for undef'ness
-		if ( ! defined $sth ) {
+		if (!defined($sth)) {
 			die 'Did not get a statement handler';
 		} else {
 			# Execute the query
@@ -640,7 +725,7 @@ sub db_arrayhash {
 	}
 
 	# Finally, we clean up this statement handle
-	if ( defined $sth ) {
+	if (defined($sth)) {
 		$sth->finish();
 	}
 }
@@ -675,7 +760,7 @@ sub db_hashhash {
 		}
 
 		# Check for undef'ness
-		if ( ! defined $sth ) {
+		if (!defined($sth)) {
 			die 'Did not get a statement handler';
 		} else {
 			# Execute the query
@@ -692,6 +777,11 @@ sub db_hashhash {
 
 		# Check the primary key
 		my $foundprimary = 0;
+
+		# default to the first one
+		unless (defined($data->{primary_key})) {
+			$data->{primary_key} = 1;
+		}
 
 		if ($data->{primary_key} =~ m/^\d+$/) {
 			# primary_key can be a 1 based index
@@ -762,7 +852,7 @@ sub db_hashhash {
 	}
 
 	# Finally, we clean up this statement handle
-	if ( defined $sth ) {
+	if (defined($sth)) {
 		$sth->finish();
 	}
 }
@@ -797,7 +887,7 @@ sub db_hasharray {
 		}
 
 		# Check for undef'ness
-		if ( ! defined $sth ) {
+		if (!defined($sth)) {
 			die 'Did not get a statement handler';
 		} else {
 			# Execute the query
@@ -872,7 +962,7 @@ sub db_hasharray {
 	};
 
 	# Check if we got any errors
-	if ( ! defined($self->{output})) {
+	if (!defined($self->{output})) {
 		# Make output include the results
 		$self->{output} = { result => $result, id => $data->{id}, cols => [ @cols ], primary_key => $data->{primary_key} };
 		if (exists($data->{chunked})) {
@@ -882,7 +972,7 @@ sub db_hasharray {
 	}
 
 	# Finally, we clean up this statement handle
-	if ( defined $sth ) {
+	if (defined($sth)) {
 		$sth->finish();
 	}
 }
@@ -915,7 +1005,7 @@ sub db_array {
 		}
 
 		# Check for undef'ness
-		if ( ! defined $sth ) {
+		if (!defined($sth)) {
 			die 'Did not get a statement handler';
 		} else {
 			# Execute the query
@@ -984,7 +1074,7 @@ sub db_array {
 	}
 
 	# Finally, we clean up this statement handle
-	if ( defined $sth ) {
+	if (defined($sth)) {
 		$sth->finish();
 	}
 }
@@ -1017,7 +1107,7 @@ sub db_hash {
 		}
 
 		# Check for undef'ness
-		if ( ! defined $sth ) {
+		if (!defined($sth)) {
 			die 'Did not get a statement handler';
 		} else {
 			# Execute the query
@@ -1059,13 +1149,13 @@ sub db_hash {
 	};
 
 	# Check if we got any errors
-	if (!defined $self->{output}) {
+	if (!defined($self->{output})) {
 		# Make output include the results
 		$self->{output} = { result => $result, id => $data->{id} };
 	}
 
 	# Finally, we clean up this statement handle
-	if ( defined $sth ) {
+	if (defined($sth)) {
 		$sth->finish();
 	}
 }
@@ -1098,7 +1188,7 @@ sub db_keyvalhash {
 		}
 
 		# Check for undef'ness
-		if ( ! defined $sth ) {
+		if (!defined($sth)) {
 			die 'Did not get a statement handler';
 		} else {
 			# Execute the query
@@ -1159,7 +1249,7 @@ sub db_keyvalhash {
 	}
 
 	# Finally, we clean up this statement handle
-	if ( defined $sth ) {
+	if (defined($sth)) {
 		$sth->finish();
 	}
 }

@@ -11,6 +11,7 @@ WriteMakefile(
 		'DBI'		=>	'1.38',
 		'Error'		=>	'0.15',
 		'Carp'		=>	'0',
+#		'DBD::AnyData'	=>	'0',
     },
 
     ($] >= 5.005 ?    ## Add these new keywords supported since 5.005

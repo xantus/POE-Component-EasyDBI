@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.07 $))[1];
+our $VERSION = (qw($Revision: 0.08 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -65,6 +65,7 @@ sub new {
 		connected
 		no_warnings
 		sig_ignore_off
+		no_cache
 	);
 	
 	# check the DSN
@@ -161,6 +162,10 @@ sub new {
 			'child_STDOUT'	=>	\&child_STDOUT,
 			'child_STDERR'	=>	\&child_STDERR,
 
+			# special events
+			'func'			=>  \&db_handler,
+			'method'		=>  \&db_handler,
+
 			# database events
 			'INSERT'		=>	\&db_handler,
 			'insert'		=>	\&db_handler,
@@ -224,6 +229,19 @@ sub new {
 
 			# Connection failure option
 			'no_connect_failures' => $keep->{no_connect_failures} || 0,
+
+			# extra params for actions
+			action_params => {
+				func => [qw( args )],
+				method => [qw( function args )],
+				single => [qw( seperator )],
+				insert => [qw( insert hash table last_insert_id )],
+				array => [qw( chunked seperator )],
+				keyvalhash => [qw( primary_key chunked )],
+				hashhash => [qw( primary_key chunked )],
+				hasharray => [qw( primary_key chunked )],
+				arrayhash => [qw( chunked )],
+			},
 		},
 	) or die 'Unable to create a new session!';
 
@@ -253,31 +271,29 @@ sub shutdown_poco {
 	}
 
 	# Check if we got "NOW"
-	if (defined $_[ARG0] && uc($_[ARG0]) eq 'NOW') {
+	if (defined($_[ARG0]) && uc($_[ARG0]) eq 'NOW') {
 		# Actually shut down!
 		$heap->{shutdown} = 2;
 
-		# KILL our subprocess
-		$heap->{wheel}->kill(-9);
+		if ($heap->{wheel}) {
+			# KILL our subprocess
+			$heap->{wheel}->kill(-9);
+		}
 
 		# Delete the wheel, so we have nothing to keep
 		# the GC from destructing us...
 		delete $heap->{wheel};
 
 		# Go over our queue, and do some stuff
-		foreach my $queue (@{ $heap->{queue} }) {
+		foreach my $queue (@{$heap->{queue}}) {
 			# Skip the special EXIT actions we might have put on the queue
 			if ($queue->{action} eq 'EXIT') { next }
 
 			# Post a failure event to all the queries on the Queue
 			# informing them that we have been shutdown...
-			$kernel->post( $queue->{session}, $queue->{event}, {
-					sql				=>	$queue->{sql},
-					placeholders	=>	$queue->{placeholders},
-					error			=>	'POE::Component::EasyDBI was '
-						.'shut down forcibly!',
-				},
-			);
+			$queue->{error} = 'POE::Component::EasyDBI was '
+						.'shut down forcibly!';
+			$kernel->post( $queue->{session}, $queue->{event}, $queue);
 
 			# Argh, decrement the refcount
 			$kernel->refcount_decrement( $queue->{session}, 'EasyDBI' );
@@ -288,7 +304,7 @@ sub shutdown_poco {
 	} else {
 		# Gracefully shut down...
 		$heap->{shutdown} = 1;
-
+		
 		# Put into the queue EXIT for the child
 		$kernel->yield( 'send_query', {
 				action			=>	'EXIT',
@@ -315,8 +331,9 @@ sub db_handler {
 
 	# Add some stuff to the args
 	# defaults to sender, but can be specified
-	unless ($args->{session}) {
+	unless (defined($args->{session})) {
 		$args->{session} = $_[SENDER]->ID();
+		DEBUG && print "setting session to $args->{session}\n";
 	}
 	
 	$args->{action} = $_[STATE];
@@ -327,74 +344,99 @@ sub db_handler {
 			." -> State: " . $_[STATE] . " Args: " . %$args;
 		return;
 	} else {
-		if (ref($args->{event} ne 'SCALAR')) {
-			# Same quietness...
-			warn "Received an malformed event argument from caller "
-				.$_[SESSION]->ID." -> State: " . $_[STATE] . " Args: "
-				.%$args;
+		my $a = ref($args->{event});
+		unless (!ref($a) || $a =~ m/postback/i || $a =~ m/callback/i) {
+			warn "Received an malformed event argument from caller"
+				." (only postbacks, callbacks and scalar allowed) "
+				.$_[SESSION]->ID." -> State: " . $_[STATE] . " Event: $args->{event}"
+				." Args: " . %$args;
 			return;
 		}
 	}
 
-	if (!exists($args->{sql})) {
-		# Okay, send the error to the Failure Event
-		$kernel->post($args->{session}, $args->{event}, {
-				sql				=>	undef,
-				placeholders	=>	undef,
-				error			=>	'sql is not defined!',
-			}
-		);
-		return;
-	} else {
-		if (ref($args->{sql}) && $args->{action} !~ m/insert/i) {
+	if (!defined($args->{sql})) {
+		unless ($args->{action} =~ m/insert/i 
+			|| $args->{action} eq 'func' || $args->{action} eq 'method') {
+
+			$args->{error} = 'sql is not defined!';
 			# Okay, send the error to the Failure Event
-			$kernel->post($args->{session}, $args->{event}, {
-					sql				=>	undef,
-					placeholders	=>	undef,
-					error			=>	'sql is not a scalar!',
-				}
-			);
+			$kernel->post($args->{session}, $args->{event}, $args);
+			return;
+		}
+	} else {
+		if (ref($args->{sql})) {
+			$args->{error} = 'sql is not a scalar!';
+			if (!ref($args->{event})) {
+				# Okay, send the error to the Failure Event
+				$kernel->post($args->{session}, $args->{event}, $args);
+			} else {
+				my $callback = delete $args->{event};
+				if (ref($callback) eq 'CODE') {
+					$_[ARG0] = $args;
+					$callback->(@_);
+				} else {
+					$callback->($args);
+				}	
+			}
 			return;
 		}
 	}
 
 	# Check for placeholders
-	if (!exists($args->{placeholders})) {
+	if (!defined($args->{placeholders})) {
 		# Create our own empty placeholders
 		$args->{placeholders} = [];
 	} else {
 		if (ref($args->{placeholders}) ne 'ARRAY') {
-			# Okay, send the error to the Failure Event
-			$kernel->post($args->{session}, $args->{event}, {
-					sql				=>	$args->{sql},
-					placeholders	=>	undef,
-					error			=>	'placeholders is not an array!',
-				}
-			);
+			$args->{error} = 'placeholders is not an array!';
+			if (!ref($args->{event})) {
+				# Okay, send the error to the Failure Event
+				$kernel->post($args->{session}, $args->{event}, $args);
+			} else {
+				my $callback = delete $args->{event};
+#				if (ref($callback) eq 'CODE') {
+#					$_[ARG0] = $args;
+#					$callback->(@_);
+#				} else {
+					$callback->($args);
+#				}	
+			}
 			return;
 		}
 	}
 
 	# Check for primary_key on HASHHASH or ARRAYHASH queries
 	if ($args->{action} eq 'HASHHASH' || $args->{action} eq 'HASHARRAY') {
-		if (!exists($args->{primary_key})) {
-			$kernel->post($args->{session}, $args->{event}, {
-					sql				=>	$args->{sql},
-					placeholders	=>	undef,
-					error			=>	'primary_key is not defined! It must '
-						.'be a column name or a 1 based index of a column',
-				}
-			);
+		if (!defined($args->{primary_key})) {
+			$args->{error} =  'primary_key is not defined! It must '
+							.'be a column name or a 1 based index of a column';
+	 		if (!ref($args->{event})) {
+				$kernel->post($args->{session}, $args->{event}, $args);
+			} else {
+				my $callback = delete $args->{event};
+#				if (ref($callback) eq 'CODE') {
+#					$_[ARG0] = $args;
+#					$callback->(@_);
+#				} else {
+					$callback->($args);
+#				}	
+			}
 			return;
 		} else {
+			$args->{error} = 'primary_key is not a scalar!';
 			if (ref($args->{sql})) {
 				# Okay, send the error to the Failure Event
-				$kernel->post($args->{session}, $args->{event}, {
-						sql				=>	undef,
-						placeholders	=>	undef,
-						error			=>	'primary_key is not a scalar!',
-					}
-				);
+				if (!ref($args->{event})) {
+					$kernel->post($args->{session}, $args->{event}, $args);
+				} else {
+					my $callback = delete $args->{event};
+#					if (ref($callback) eq 'CODE') {
+#						$_[ARG0] = $args;
+#						$callback->(@_);
+#					} else {
+						$callback->($args);
+#					}
+				}
 				return;
 			}
 		}
@@ -402,14 +444,20 @@ sub db_handler {
 
 	# Check if we have shutdown or not
 	if ($heap->{shutdown}) {
+		$args->{error} = 'POE::Component::EasyDBI is shutting'
+					.' down now, requests are not accepted!';
 		# Do not accept this query
-		$kernel->post($args->{session}, $args->{event}, {
-				sql				=>	$args->{sql},
-				placeholders	=>	$args->{placeholders},
-				error			=>	'POE::Component::EasyDBI is shutting down '
-					.'now, requests are not accepted!',
-			}
-		);
+		if (!ref($args->{event})) {
+			$kernel->post($args->{session}, $args->{event}, $args);
+		} else {
+			my $callback = delete $args->{event};
+#			if (ref($callback) eq 'CODE') {
+#				$_[ARG0] = $args;
+#				$callback->(@_);
+#			} else {
+				$callback->($args);
+#			}
+		}
 		return;
 	}
 
@@ -449,20 +497,14 @@ sub check_queue {
 		if (scalar(@{ $heap->{queue} }) > 0) {
 			# Copy what we need from the top of the queue
 			my %queue;
-			foreach (qw( id sql action placeholders)) {
+			foreach (qw( id sql action placeholders no_cache)) {
+				next unless (defined($heap->{queue}->[0]->{$_}));
 				$queue{$_} = $heap->{queue}->[0]->{$_};
 			}
-			# check for primary_key
-			if (exists($heap->{queue}->[0]->{primary_key})) {
-				$queue{primary_key} = $heap->{queue}->[0]->{primary_key};
-			}
-			# chunked
-			if (exists($heap->{queue}->[0]->{chunked})) {
-				$queue{chunked} = $heap->{queue}->[0]->{chunked};
-			}
-			# and seperator
-			if (exists($heap->{queue}->[0]->{seperator})) {
-				$queue{seperator} = $heap->{queue}->[0]->{seperator};
+			
+			foreach (@{$heap->{action_params}->{$queue{action}}}) {
+				next unless (defined($heap->{queue}->[0]->{$_}));
+				$queue{$_} = $heap->{queue}->[0]->{$_};
 			}
 
 			# Send data only if we are not shutting down...
@@ -494,7 +536,11 @@ sub setup_wheel {
 	
 	# Are we shutting down?
 	if ($heap->{shutdown}) {
+#		if ($heap->{wheel}) {
+#			$heap->{wheel}->kill();
+#		}
 		# Do not re-create the wheel...
+		delete $heap->{wheel};
 		return;
 	}
 
@@ -594,8 +640,17 @@ sub delete_query {
 sub child_closed {
 	my ($kernel, $heap) = @_[KERNEL,HEAP];
 	
+	DEBUG && warn 'POE::Component::EasyDBI\'s Wheel closed';
+	if ($heap->{shutdown}) {
+#		if ($heap->{wheel}) {
+#			$heap->{wheel}->kill();
+#		}
+		delete $heap->{wheel};
+		return;
+	}
+
 	# Emit debugging information
-	DEBUG && warn 'POE::Component::EasyDBI\'s Wheel died! Restarting it...';
+	DEBUG && warn 'Restarting it...';
 
 	# Create the wheel again
 	delete $heap->{wheel};
@@ -604,12 +659,22 @@ sub child_closed {
 
 # Handles child error
 sub child_error {
+	my $heap = $_[HEAP];
+	
 	# Emit warnings only if debug is on
 	DEBUG && do {
 		# Copied from POE::Wheel::Run manpage
 		my ($operation, $errnum, $errstr) = @_[ARG0 .. ARG2];
 		warn "POE::Component::EasyDBI got an $operation error $errnum: $errstr\n";
 	};
+	
+	if ($heap->{shutdown}) {
+		if ($heap->{wheel}) {
+			$heap->{wheel}->kill();
+		}
+		delete $heap->{wheel};
+		return;
+	}
 }
 
 # Handles child STDOUT output
@@ -621,6 +686,11 @@ sub child_STDOUT {
 		warn "POE::Component::EasyDBI did not get a hash from the child ( $data )";
 		return;
 	}
+
+	DEBUG && do {
+		require Data::Dumper;
+		print Data::Dumper->Dump([$data,$heap->{queue}[0]]);
+	};
 
 	# Check for special DB messages with ID of 'DBI'
 	if ($data->{id} eq 'DBI') {
@@ -635,7 +705,17 @@ sub child_STDOUT {
 			if (ref($heap->{opts}{connect_error})) {
 				$kernel->post(@{$heap->{opts}{connect_error}}, $query_copy);
 			} elsif ($query_copy->{session} && $query_copy->{event}) {
-				$kernel->post($query_copy->{session}, $query_copy->{event}, $query_copy);
+				if (!ref($query_copy)) {
+					$kernel->post($query_copy->{session}, $query_copy->{event}, $query_copy);
+				} else {
+					my $callback = delete $query_copy->{event};
+#					if (ref($callback) eq 'CODE') {
+#						$_[ARG0] = $query_copy;
+#						$callback->(@_);
+#					} else {
+						$callback->($query_copy);
+#					}
+				}
 			} else {
 				warn "No connect_error defined and no queries in the queue while "
 				."error occurred: $data->{error}";
@@ -667,8 +747,6 @@ sub child_STDOUT {
 	
 	if (exists($data->{chunked})) {
 		# Get the query from the queue
-		# XXX this should be the first one anyway
-		# TODO check this and adjust
 		$query = $heap->{queue}->[0];
 		if (exists($data->{last_chunk})) {
 			# last chunk, delete it out of the queue
@@ -696,7 +774,19 @@ sub child_STDOUT {
 		$query_copy->{$k} = $data->{$k};
 	}
 	
-	$kernel->post($query->{session}, $query->{event}, $query_copy);
+	if (!ref($query->{event})) {
+		DEBUG && print "calling event $query->{event} in session $query->{session} ".$_[SESSION]->ID."\n";
+		$kernel->post($query->{session}, $query->{event}, $query_copy);
+	} else {
+		DEBUG && print "calling callback\n";
+		my $callback = delete $query_copy->{event};
+#		if (ref($callback) eq 'CODE') {
+#			$_[ARG0] = $query_copy;
+#			$callback->(@_);
+#		} else {
+			$callback->($query_copy);
+#		}
+	}
 
 	# Decrement the refcount for the session that sent us a query
 	if ($refcount_decrement == 1) {
@@ -716,7 +806,7 @@ sub child_STDERR {
 	# Skip empty lines as the POE::Filter::Line manpage says...
 	if ($input eq '') { return }
 
-#return if ($_[HEAP]->{opts}->{no_warnings});
+	return if ($_[HEAP]->{opts}->{no_warnings} && !DEBUG);
 
 	warn "$input\n";
 }
@@ -738,13 +828,12 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 
 =head1 SYNOPSIS
 
-	use POE;
-	use POE::Component::EasyDBI;
+	use POE qw( POE::Component::EasyDBI );
 
 	# Set up the DBI
 	POE::Component::EasyDBI->new(
 		alias		=> 'EasyDBI',
-		dsn			=> 'DBI:mysql:database=foobaz;host=192.168.1.100;port=3306',
+		dsn		=> 'DBI:mysql:database=foobaz;host=192.168.1.100;port=3306',
 		username	=> 'user',
 		password	=> 'pass',
 	);
@@ -753,257 +842,29 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 	POE::Session->create(
 		inline_states => {
 			_start => sub {
-				$kernel->post( 'EasyDBI',
+				$_[KERNEL]->post( 'EasyDBI',
 					do => {
-						sql => 'DELETE FROM users WHERE user_id = ?',
-						placeholders => [ qw( 144 ) ],
-						event => 'deleted_handler',
+						sql => 'CREATE TABLE users (id INT, username VARCHAR(100)',
+						event => 'table_created',
 					}
 				);
-
-				# 'single' is very different from the single query in SimpleDBI
-				# look at 'hash' to get those results
-				
-				# If you select more than one field, you will only get the last one
-				# unless you pass in a seperator with what you want the fields seperated by
-				# to get null sperated values, pass in seperator => "\0"
-				$kernel->post( 'EasyDBI',
-					single => {
-						sql => 'Select user_id,user_login from users where user_id = ?',
-						event => 'single_handler',
-						placeholders => [ qw( 144 ) ],
-						seperator => ',', #optional!
-					}
-				);
-
-				$kernel->post( 'EasyDBI',
-					quote => {
-						sql => 'foo$*@%%sdkf"""',
-						event => 'quote_handler',
-					}
-				);
-				
-				$kernel->post( 'EasyDBI',
-					arrayhash => {
-						sql => 'SELECT user_id,user_login from users where logins = ?',
-						event => 'arrayhash_handler',
-						placeholders => [ qw( 53 ) ],
-					}
-				);
-				
-				my $postback = $_[SESSION]->postback("test",3,2,1);
-				
-				$_[KERNEL]->post( 'EasyDBI',
-					arrayhash => {
-						sql => 'SELECT user_id,user_login from users',
-						event => 'result_handler',
-						extra_data => $postback,
-					}
-				);
-
-				$_[KERNEL]->post( 'EasyDBI',
-					hashhash => {
-						sql => 'SELECT * from locations',
-						event => 'result_handler',
-						primary_key => '1', # you can specify a primary key, or a number based on what column to use
-					}
-				);
-				
-				$_[KERNEL]->post( 'EasyDBI',
-					hasharray => {
-						sql => 'SELECT * from locations',
-						event => 'result_handler',
-						primary_key => "1",
-					}
-				);
-				
-				# you should use limit 1, it is NOT automaticly added
-				$_[KERNEL]->post( 'EasyDBI',
-					hash => {
-						sql => 'SELECT * from locations LIMIT 1',
-						event => 'result_handler',
-					}
-				);
-				
-				$_[KERNEL]->post( 'EasyDBI',
-					array => {
-						sql => 'SELECT location_id from locations',
-						event => 'result_handler',
-					}
-				);
-				
-				$_[KERNEL]->post( 'EasyDBI',
-					keyvalhash => {
-						sql => 'SELECT location_id,location_name from locations',
-						event => 'result_handler',
-					}
-				);
-
+			},
+			table_created => sub {
 				$_[KERNEL]->post( 'EasyDBI',
 					insert => {
-						sql => 'INSERT INTO zipcodes (zip,city,state) VALUES (?,?,?)',
-						placeholders => [ '98004', 'Bellevue', 'WA' ],
-						event => 'insert_handler',
-					}
-				);
-
-				$_[KERNEL]->post( 'EasyDBI',
-					insert => {
-						hash => { username => 'test' , pass => 'sUpErSeCrEt', name => 'John' },
-						table => 'users',
-						last_insert_id => {
-							field => 'user_id', # mysql uses SELECT LAST_INSERT_ID instead
-							table => 'users',   # of these values, just specify {} for mysql
-						},
-						# or last_insert_id can be => 'SELECT LAST_INSERT_ID()' or some other
-						# query that will return a value
+						insert => [
+							{ id => 1, username => 'foo' },
+							{ id => 2. username => 'bar' },
+							{ id => 3, username => 'baz' },
+						],
 					},
 				);
-				
-				# 3 ways to shutdown
-
-				# This will let the existing queries finish, then shutdown
-				$kernel->post( 'EasyDBI', 'shutdown' );
-
-				# This will terminate when the event traverses
-				# POE's queue and arrives at EasyDBI
-				#$kernel->post( 'EasyDBI', shutdown => 'NOW' );
-
-				# Even QUICKER shutdown :)
-				#$kernel->call( 'EasyDBI', shutdown => 'NOW' );
+				$_[KERNEL]->post( 'EasyDBI' => 'shutdown' );
 			},
-
-			deleted_handler => \&deleted_handler,
-			quote_handler	=> \&quote_handler,
-			arrayhash_handler => \&arrayhash_handler,
 		},
 	);
 
-	sub quote_handler {
-		# For QUOTE calls, we receive the scalar string of SQL quoted
-		# $_[ARG0] = {
-		#	sql => The SQL you sent
-		#	result	=> scalar quoted SQL
-		#	placeholders => The placeholders
-		#	action => 'QUOTE'
-		#	error => Error occurred, check this first
-		# }
-	}
-
-	sub deleted_handler {
-		# For DO calls, we receive the scalar value of rows affected
-		# $_[ARG0] = {
-		#	sql => The SQL you sent
-		#	result	=> scalar value of rows affected
-		#	placeholders => The placeholders
-		#	action => 'do'
-		#	error => Error occurred, check this first
-		# }
-	}
-
-	sub single_handler {
-		# For SINGLE calls, we receive a scalar
-		# $_[ARG0] = {
-		#	SQL => The SQL you sent
-		#	result	=> scalar
-		#	placeholders => The placeholders
-		#	action => 'single'
-		#	seperator => Seperator you may have sent
-		#	error => Error occurred, check this first
-		# }
-	}
-
-	sub arrayhash_handler {
-		# For arrayhash calls, we receive an array of hashes
-		# $_[ARG0] = {
-		#	sql => The SQL you sent
-		#	result	=> array of hashes
-		#	placeholders => The placeholders
-		#	action => 'arrayhash'
-		#	error => Error occurred, check this first
-		# }
-	}
-
-	sub hashhash_handler {
-		# For hashhash calls, we receive a hash of hashes
-		# $_[ARG0] = {
-		#	sql => The SQL you sent
-		#	result	=> hash of hashes keyed on primary key
-		#	placeholders => The placeholders
-		#	action => 'hashhash'
-		#	cols => array of columns in order (to help recreate the sql order)
-		#	primary_key => column you specified as primary key, if you specifed
-		#		a number, the real column name will be here
-		#	error => Error occurred, check this first
-		# }
-	}
-
-	sub hasharray_handler {
-		# For hasharray calls, we receive an hash of arrays
-		# $_[ARG0] = {
-		#	sql => The SQL you sent
-		#	result	=> hash of hashes keyed on primary key
-		#	placeholders => The placeholders
-		#	action => 'hashhash'
-		#	cols => array of columns in order (to help recreate the sql order)
-		#	primary_key => column you specified as primary key, if you specifed
-		#			a number, the real column name will be here
-		#	error => Error occurred, check this first
-		# }
-	}
-	
-	sub array_handler {
-		# For array calls, we receive an array
-		# $_[ARG0] = {
-		#	sql => The SQL you sent
-		#	result	=> an array, if multiple fields are used, they are comma
-		#			seperated (specify seperator in event call to change this)
-		#	placeholders => The placeholders
-		#	action => 'array'
-		#	seperator => you sent  # optional!
-		#	error => Error occurred, check this first
-		# }
-	}
-	
-	sub hash_handler {
-		# For hash calls, we receive a hash
-		# $_[ARG0] = {
-		#	sql => The SQL you sent
-		#	result	=> a hash
-		#	placeholders => The placeholders
-		#	action => 'hash'
-		#	error => Error occurred, check this first
-		# }
-	}
-
-	sub keyvalhash_handler {
-		# For keyvalhash calls, we receive a hash
-		# $_[ARG0] = {
-		#	sql => The SQL you sent
-		#	result	=> a hash  # first field is the key, second is the value
-		#	placeholders => The placeholders
-		#	action => 'keyvalhash'
-		#	error => Error occurred, check this first
-		# }
-	}
-	
-	sub insert_handle {
-		# $_[ARG0] = {
-		# 	sql => The SQL you sent
-		# 	placeholders => The placeholders
-		# 	action => 'insert'
-		# 	table => 'users',
-		# 	# for postgresql, or others?
-		# 	last_insert_id => { # used to retrieve the insert id of the inserted row
-		#		field => The field of id requested
-		#		table => The table the holds the field
-		# 	},
-		# 	-OR-
-		# 	last_insert_id => 'SELECT LAST_INSERT_ID()', # mysql style
-		# 	result => the id from the last_insert_id post query
-		# 	error => Error occurred, check this first
-		# }
-	}
+	$poe_kernel->run();
 
 =head1 ABSTRACT
 
@@ -1121,6 +982,11 @@ the component makes a successful connection this event will be called
 with the next query as ARG0 or an empty hash ref if no queries are in the queue.
 DON'T resend the query, it will be processed.
 
+=item C<no_cache>
+
+Optional. If true, prepare_cached won't be called on queries.  Use this when
+using L<DBD::AnyData>.  This can be overridden with each query.
+
 =back
 
 =head2 Events
@@ -1132,13 +998,25 @@ They all share a common argument format, except for the shutdown event.
 Note: you can change the session that the query posts back to, it uses $_[SENDER]
 as the default.
 
+You can use a postback, or callback (See POE::Session)
+
 For example:
 
 	$kernel->post( 'EasyDBI',
 		quote => {
 				sql => 'foo$*@%%sdkf"""',
 				event => 'quoted_handler',
-				session => 'dbi_helper', # or you can use a session id
+				session => 'dbi_helper', # or session id
+		}
+	);
+
+or
+
+	$kernel->post( 'EasyDBI',
+		quote => {
+				sql => 'foo$*@%%sdkf"""',
+				event => $_[SESSION]->postack("quoted_handler"),
+				session => 'dbi_helper', # or session id
 		}
 	);
 
@@ -1437,6 +1315,7 @@ For example:
 			sql => 'SELECT this, that FROM my_table WHERE my_id = ?',
 			event => 'result_handler',
 			placeholders => [ qw( 2021 ) ],
+			primary_key => 1, # uses 'this' as the key
 		}
 	);
 
@@ -1485,6 +1364,30 @@ For example:
 		insert_id		=>	Insert id if last_insert_id is used
 		rows			=>	Number of rows affected
 		result			=>	Same as rows
+	}
+
+=item C<func>
+
+	This is for calling $dbh->func(), available when using L<DBD::AnyData>
+	
+	Internally, it does this:
+
+	$result = $dbh->func(@{$args});
+	return $result;
+
+	Here's an example on how to trigger this event:
+
+	$kernel->post( 'EasyDBI',
+		func => {
+			args => ['test2','CSV',["id,phrase\n1,foo\n2,bar"],'ad_import'],
+			event => 'result_handler',
+		}
+	);
+
+	The Success Event handler will get a hash in ARG0:
+	{
+		sql				=>	SQL sent
+		result			=>  return value
 	}
 
 =item C<shutdown>
@@ -1576,6 +1479,278 @@ See the insert event for a example of its use.
 
 =back
 
+=head2 LONG EXAMPLE
+
+	use POE;
+	use POE::Component::EasyDBI;
+
+	# Set up the DBI
+	POE::Component::EasyDBI->new(
+		alias		=> 'EasyDBI',
+		dsn			=> 'DBI:mysql:database=foobaz;host=192.168.1.100;port=3306',
+		username	=> 'user',
+		password	=> 'pass',
+	);
+	
+	# Create our own session to communicate with EasyDBI
+	POE::Session->create(
+		inline_states => {
+			_start => sub {
+				$_[KERNEL]->post( 'EasyDBI',
+					do => {
+						sql => 'DELETE FROM users WHERE user_id = ?',
+						placeholders => [ qw( 144 ) ],
+						event => 'deleted_handler',
+					}
+				);
+
+				# 'single' is very different from the single query in SimpleDBI
+				# look at 'hash' to get those results
+				
+				# If you select more than one field, you will only get the last one
+				# unless you pass in a seperator with what you want the fields seperated by
+				# to get null sperated values, pass in seperator => "\0"
+				$_[KERNEL]->post( 'EasyDBI',
+					single => {
+						sql => 'Select user_id,user_login from users where user_id = ?',
+						event => 'result_handler',
+						placeholders => [ qw( 144 ) ],
+						seperator => ',', #optional!
+					}
+				);
+
+				$_[KERNEL]->post( 'EasyDBI',
+					quote => {
+						sql => 'foo$*@%%sdkf"""',
+						event => 'quote_handler',
+					}
+				);
+				
+				$_[KERNEL]->post( 'EasyDBI',
+					arrayhash => {
+						sql => 'SELECT user_id,user_login from users where logins = ?',
+						event => 'result_handler',
+						placeholders => [ qw( 53 ) ],
+					}
+				);
+				
+				my $postback = $_[SESSION]->postback("result_handler",3,2,1);
+				
+				$_[KERNEL]->post( 'EasyDBI',
+					arrayhash => {
+						sql => 'SELECT user_id,user_login from users',
+						event => $postback,
+					}
+				);
+
+				$_[KERNEL]->post( 'EasyDBI',
+					hashhash => {
+						sql => 'SELECT * from locations',
+						event => 'result_handler',
+						primary_key => '1', # you can specify a primary key, or a number based on what column to use
+					}
+				);
+				
+				$_[KERNEL]->post( 'EasyDBI',
+					hasharray => {
+						sql => 'SELECT * from locations',
+						event => 'result_handler',
+						primary_key => "1",
+					}
+				);
+				
+				# you should use limit 1, it is NOT automaticly added
+				$_[KERNEL]->post( 'EasyDBI',
+					hash => {
+						sql => 'SELECT * from locations LIMIT 1',
+						event => 'result_handler',
+					}
+				);
+				
+				$_[KERNEL]->post( 'EasyDBI',
+					array => {
+						sql => 'SELECT location_id from locations',
+						event => 'result_handler',
+					}
+				);
+				
+				$_[KERNEL]->post( 'EasyDBI',
+					keyvalhash => {
+						sql => 'SELECT location_id,location_name from locations',
+						event => 'result_handler',
+						# if primary_key isn't used, the first one is assumed
+					}
+				);
+
+				$_[KERNEL]->post( 'EasyDBI',
+					insert => {
+						sql => 'INSERT INTO zipcodes (zip,city,state) VALUES (?,?,?)',
+						placeholders => [ '98004', 'Bellevue', 'WA' ],
+						event => 'insert_handler',
+					}
+				);
+
+				$_[KERNEL]->post( 'EasyDBI',
+					insert => {
+						# this can also be a array of hashes similar to this
+						hash => { username => 'test' , pass => 'sUpErSeCrEt', name => 'John' },
+						table => 'users',
+						last_insert_id => {
+							field => 'user_id', # mysql uses SELECT LAST_INSERT_ID instead
+							table => 'users',   # of these values, just specify {} for mysql
+						},
+						# or last_insert_id can be => 'SELECT LAST_INSERT_ID()' or some other
+						# query that will return a value
+					},
+				);
+				
+				# 3 ways to shutdown
+
+				# This will let the existing queries finish, then shutdown
+				$_[KERNEL]->post( 'EasyDBI', 'shutdown' );
+
+				# This will terminate when the event traverses
+				# POE's queue and arrives at EasyDBI
+				#$_[KERNEL]->post( 'EasyDBI', shutdown => 'NOW' );
+
+				# Even QUICKER shutdown :)
+				#$_[KERNEL]->call( 'EasyDBI', shutdown => 'NOW' );
+			},
+
+			deleted_handler => \&deleted_handler,
+			quote_handler	=> \&quote_handler,
+			arrayhash_handler => \&arrayhash_handler,
+		},
+	);
+
+	sub quote_handler {
+		# For QUOTE calls, we receive the scalar string of SQL quoted
+		# $_[ARG0] = {
+		#	sql => The SQL you sent
+		#	result	=> scalar quoted SQL
+		#	placeholders => The placeholders
+		#	action => 'QUOTE'
+		#	error => Error occurred, check this first
+		# }
+	}
+
+	sub deleted_handler {
+		# For DO calls, we receive the scalar value of rows affected
+		# $_[ARG0] = {
+		#	sql => The SQL you sent
+		#	result	=> scalar value of rows affected
+		#	placeholders => The placeholders
+		#	action => 'do'
+		#	error => Error occurred, check this first
+		# }
+	}
+
+	sub single_handler {
+		# For SINGLE calls, we receive a scalar
+		# $_[ARG0] = {
+		#	SQL => The SQL you sent
+		#	result	=> scalar
+		#	placeholders => The placeholders
+		#	action => 'single'
+		#	seperator => Seperator you may have sent
+		#	error => Error occurred, check this first
+		# }
+	}
+
+	sub arrayhash_handler {
+		# For arrayhash calls, we receive an array of hashes
+		# $_[ARG0] = {
+		#	sql => The SQL you sent
+		#	result	=> array of hash refs
+		#	placeholders => The placeholders
+		#	action => 'arrayhash'
+		#	error => Error occurred, check this first
+		# }
+	}
+
+	sub hashhash_handler {
+		# For hashhash calls, we receive a hash of hashes
+		# $_[ARG0] = {
+		#	sql => The SQL you sent
+		#	result	=> hash ref of hash refs keyed on primary key
+		#	placeholders => The placeholders
+		#	action => 'hashhash'
+		#	cols => array of columns in order (to help recreate the sql order)
+		#	primary_key => column you specified as primary key, if you specifed
+		#		a number, the real column name will be here
+		#	error => Error occurred, check this first
+		# }
+	}
+
+	sub hasharray_handler {
+		# For hasharray calls, we receive an hash of arrays
+		# $_[ARG0] = {
+		#	sql => The SQL you sent
+		#	result	=> hash ref of array refs keyed on primary key
+		#	placeholders => The placeholders
+		#	action => 'hashhash'
+		#	cols => array of columns in order (to help recreate the sql order)
+		#	primary_key => column you specified as primary key, if you specifed
+		#			a number, the real column name will be here
+		#	error => Error occurred, check this first
+		# }
+	}
+	
+	sub array_handler {
+		# For array calls, we receive an array
+		# $_[ARG0] = {
+		#	sql => The SQL you sent
+		#	result	=> an array, if multiple fields are used, they are comma
+		#			seperated (specify seperator in event call to change this)
+		#	placeholders => The placeholders
+		#	action => 'array'
+		#	seperator => you sent  # optional!
+		#	error => Error occurred, check this first
+		# }
+	}
+	
+	sub hash_handler {
+		# For hash calls, we receive a hash
+		# $_[ARG0] = {
+		#	sql => The SQL you sent
+		#	result	=> a hash
+		#	placeholders => The placeholders
+		#	action => 'hash'
+		#	error => Error occurred, check this first
+		# }
+	}
+
+	sub keyvalhash_handler {
+		# For keyvalhash calls, we receive a hash
+		# $_[ARG0] = {
+		#	sql => The SQL you sent
+		#	result	=> a hash  # first field is the key, second is the value
+		#	placeholders => The placeholders
+		#	action => 'keyvalhash'
+		#	error => Error occurred, check this first
+		#	primary_key => primary key used
+		# }
+	}
+	
+	sub insert_handle {
+		# $_[ARG0] = {
+		# 	sql => The SQL you sent
+		# 	placeholders => The placeholders
+		# 	action => 'insert'
+		# 	table => 'users',
+		# 	# for postgresql, or others?
+		# 	last_insert_id => { # used to retrieve the insert id of the inserted row
+		#		field => The field of id requested
+		#		table => The table the holds the field
+		# 	},
+		# 	-OR-
+		# 	last_insert_id => 'SELECT LAST_INSERT_ID()', # mysql style
+		# 	result => the id from the last_insert_id post query
+		# 	error => Error occurred, check this first
+		# }
+	}
+
+
 =head2 EasyDBI Notes
 
 This module is very picky about capitalization!
@@ -1605,6 +1780,8 @@ L<POE::Component::DBIAgent>
 L<POE::Component::LaDBI>
 
 L<POE::Component::SimpleDBI>
+
+L<DBD::AnyData>
 
 =head1 AUTHOR
 
