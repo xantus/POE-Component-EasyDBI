@@ -2,6 +2,6 @@ Changes
 Makefile.PL
 MANIFEST
 README
-EasyDBI.pm
-EasyDBI/SubProcess.pm
+lib/POE/Component/EasyDBI.pm
+lib/POE/Component/EasyDBI/SubProcess.pm
 t/1.t

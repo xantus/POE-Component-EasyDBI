@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.04 $))[1];
+our $VERSION = (qw($Revision: 0.05 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -25,74 +25,106 @@ sub DEBUG () { 0 }
 # So, reselect it after selecting STDOUT and setting Autoflush
 select((select(STDOUT), $| = 1)[0]);
 
-# Set things in motion!
-sub new {
-	# Get the OOP's type
-	my $type = shift;
+sub create {
+	return &new;
+}
 
-	# Sanity checking
-	if ( @_ & 1 ) {
-		croak( 'POE::Component::EasyDBI requires an even number of options passed to new() call' );
-	}
+sub new {
+	# Get the class - not used yet
+	my $class = shift;
 
 	# The options hash
-	my %opt = @_;
+	my %opt;
+
+	# Support passing in a hash ref or a regular hash
+	if ((@_ & 1) && ref($_[0]) eq 'HASH') {
+		%opt = %{$_[0]};
+	} else {
+		# Sanity checking
+		if (@_ & 1) {
+			croak('POE::Component::EasyDBI requires an even number of options '
+			.'passed to new() call');
+		}
+		%opt = @_;
+	}
 
 	# lowercase keys
 	%opt = map { lc($_) => $opt{$_} } keys %opt;
 	
-	# Our own options
-	my ( $DSN, $ALIAS, $USERNAME, $PASSWORD, $MAX_RETRIES );
-
-	# Get the DSN
+	my @valid = qw(
+		dsn
+		username
+		password
+		alias
+		max_retries
+		ping_timeout
+		use_cancel
+		no_connect_failures
+		connect_error
+		reconnect_wait
+	);
+	
+	# check the DSN
 	# username/password/port other options
 	# should be part of the DSN
-	if ( exists $opt{'dsn'} ) {
-		$DSN = $opt{'dsn'};
-		delete $opt{'dsn'};
-	} else {
-		croak( 'DSN is required to create a new POE::Component::EasyDBI instance!' );
+	if (!exists($opt{dsn})) {
+		croak('DSN is required to create a new POE::Component::EasyDBI '
+		.'instance!');
 	}
 
-	# Get the USERNAME
-	if ( exists $opt{username} ) {
-		$USERNAME = $opt{username};
-		delete $opt{username};
-	} else {
-		croak( 'username is required to create a new POE::Component::EasyDBI instance!' );
+	# check the USERNAME
+	if (!exists($opt{username})) {
+		croak('username is required to create a new POE::Component::EasyDBI '
+		.'instance!');
 	}
 
-	# Get the PASSWORD
-	if ( exists $opt{password} ) {
-		$PASSWORD = $opt{password};
-		delete $opt{password};
-	} else {
-		croak( 'password is required to create a new POE::Component::EasyDBI instance!' );
+	# check the PASSWORD
+	if (!exists($opt{password})) {
+		croak('password is required to create a new POE::Component::EasyDBI '
+			.'instance!');
 	}
 
-	# Get the session alias
-	if ( exists $opt{'alias'} ) {
-		$ALIAS = $opt{'alias'};
-		delete $opt{'alias'};
-	} else {
+	# check the reconnect wait time
+	if (exists($opt{reconnect_wait}) && $opt{reconnect_wait} < 1) {
+		warn('A reconnect_wait of less than 1 second is NOT recommended, '
+		.'continuing anyway');
+	} elsif (!$opt{reconnect_wait}) {
+		$opt{reconnect_wait} = 2;
+	}
+
+	# check the session alias
+	if (!exists($opt{alias})) {
 		# Debugging info...
-		if ( DEBUG ) {
-			warn 'Using default Alias EasyDBI';
-		}
+		DEBUG && warn 'Using default Alias EasyDBI';
 
 		# Set the default
-		$ALIAS = 'EasyDBI';
+		$opt{alias} = 'EasyDBI';
 	}
-
-	# Get the max retries
-	if ( exists $opt{'max_retries'} ) {
-		$MAX_RETRIES = $opt{'max_retries'};
-		delete $opt{'max_retries'};
+	
+	# check for connect error event
+	if (exists($opt{connect_error})) {
+		if (ref($opt{connect_error}) eq 'ARRAY') {
+			unless ($#{$opt{connect_error}} > 0) {
+				warn('connect_error must be an array reference that contains '
+				.'at least a session and event, ignoring');
+				delete $opt{connect_error};
+			}	
+		} else {
+			warn('connect_error must be an array reference that contains at '
+			.'least a session and event, ignoring');
+			delete $opt{connect_error};
+		}
+	}
+	
+	my $keep = {};
+	foreach (@valid) {
+		$keep->{$_} = delete $opt{$_};
 	}
 
 	# Anything left over is unrecognized
 	if (keys %opt) {
-		croak( 'Unrecognized keys/options ('.join(',',(keys %opt)).') were present in new() call to POE::Component::EasyDBI!' );
+		croak('Unrecognized keys/options ('.join(',',(keys %opt))
+			.') were present in new() call to POE::Component::EasyDBI!');
 	}
 
 	# Create a new session for ourself
@@ -112,6 +144,9 @@ sub new {
 			'child_STDERR'	=>	\&child_STDERR,
 
 			# database events
+			'INSERT'		=>	\&db_handler,
+			'insert'		=>	\&db_handler,
+			
 			'DO'			=>	\&db_handler,
 			'do'			=>	\&db_handler,
 			
@@ -150,7 +185,7 @@ sub new {
 			'queue'			=>	[],
 			'idcounter'		=>	0,
 
-			# The Wheel::Run object
+			# The Wheel::Run object placeholder
 			'wheel'			=>	undef,
 
 			# How many times have we re-created the wheel?
@@ -159,15 +194,18 @@ sub new {
 			# Are we shutting down?
 			'shutdown'		=>	0,
 
-			# The DB Info
-			'dsn'			=>	$DSN,
-			'username'		=>	$USERNAME,
-			'password'		=>	$PASSWORD,
+			# Valid options
+			'opts'			=> $keep,
 
 			# The alia/s we will run under
-			'alias'			=>	$ALIAS,
+			'alias'			=>	$keep->{alias},
 
-			'max_retries'	=> $MAX_RETRIES || MAX_RETRIES,
+			# Number of times to retry connection
+			# (if connection failures option is off)
+			'max_retries'	=> $keep->{max_retries} || MAX_RETRIES,
+
+			# Connection failure option
+			'no_connect_failures' => $keep->{no_connect_failures} || 0,
 		},
 	) or die 'Unable to create a new session!';
 
@@ -180,47 +218,46 @@ sub shutdown_poco {
 	my ($kernel, $heap) = @_[KERNEL,HEAP];
 	
 	# Check for duplicate shutdown signals
-	if ( $heap->{shutdown} ) {
+	if ($heap->{shutdown}) {
 		# Okay, let's see what's going on
-		if ( $heap->{shutdown} == 1 && ! defined $_[ARG0] ) {
+		if ($heap->{shutdown} == 1 && ! defined $_[ARG0]) {
 			# Duplicate shutdown events
-			if (DEBUG) {
-				warn 'Duplicate shutdown event fired!';
-			}
+			DEBUG && warn 'Duplicate shutdown event fired!';
 			return;
-		} elsif ( $heap->{shutdown} == 2 ) {
+		} elsif ($heap->{shutdown} == 2) {
 			# Tried to shutdown_NOW again...
-			if (DEBUG) {
-				warn 'Duplicate shutdown NOW fired!';
-			}
+			DEBUG && warn 'Duplicate shutdown NOW fired!';
 			return;
 		}
 	} else {
 		# Remove our alias so we can be properly terminated
-		$kernel->alias_remove( $heap->{alias} );
+		$kernel->alias_remove($heap->{alias});
 	}
 
 	# Check if we got "NOW"
-	if ( defined $_[ARG0] && uc($_[ARG0]) eq 'NOW' ) {
+	if (defined $_[ARG0] && uc($_[ARG0]) eq 'NOW') {
 		# Actually shut down!
 		$heap->{shutdown} = 2;
 
 		# KILL our subprocess
-		$heap->{wheel}->kill( -9 );
+		$heap->{wheel}->kill(-9);
 
-		# Delete the wheel, so we have nothing to keep the GC from destructing us...
+		# Delete the wheel, so we have nothing to keep
+		# the GC from destructing us...
 		delete $heap->{wheel};
 
 		# Go over our queue, and do some stuff
-		foreach my $queue ( @{ $heap->{queue} } ) {
+		foreach my $queue (@{ $heap->{queue} }) {
 			# Skip the special EXIT actions we might have put on the queue
-			if ( $queue->{action} eq 'EXIT' ) { next }
+			if ($queue->{action} eq 'EXIT') { next }
 
-			# Post a failure event to all the queries on the Queue, informing them that we have been shutdown...
+			# Post a failure event to all the queries on the Queue
+			# informing them that we have been shutdown...
 			$kernel->post( $queue->{session}, $queue->{event}, {
-				sql				=>	$queue->{sql},
-				placeholders	=>	$queue->{placeholders},
-				error			=>	'POE::Component::EasyDBI was shut down forcibly!',
+					sql				=>	$queue->{sql},
+					placeholders	=>	$queue->{placeholders},
+					error			=>	'POE::Component::EasyDBI was '
+						.'shut down forcibly!',
 				},
 			);
 
@@ -236,9 +273,9 @@ sub shutdown_poco {
 
 		# Put into the queue EXIT for the child
 		$kernel->yield( 'send_query', {
-			action			=>	'EXIT',
-			sql				=>	undef,
-			placeholders	=>	undef,
+				action			=>	'EXIT',
+				sql				=>	undef,
+				placeholders	=>	undef,
 			}
 		);
 	}
@@ -253,7 +290,8 @@ sub db_handler {
 	if (ref($_[ARG0]) eq 'HASH') {
 		$args = { %{ $_[ARG0] } };
 	} else {
-		warn "first parameter must be a ref hash, trying to adjust. (fix this to get rid of this message)";
+		warn "first parameter must be a ref hash, trying to adjust. "
+			."(fix this to get rid of this message)";
 		$args = { @_[ARG0 .. $#_ ] };
 	}
 
@@ -265,34 +303,37 @@ sub db_handler {
 	
 	$args->{action} = $_[STATE];
 
-	if ( ! exists $args->{event} ) {
+	if (!exists($args->{event})) {
 		# Nothing much we can do except drop this quietly...
-		warn "Did not receive an event argument from caller " . $_[SESSION]->ID . " -> State: " . $_[STATE] . " Args: " . %$args;
+		warn "Did not receive an event argument from caller ".$_[SESSION]->ID
+			." -> State: " . $_[STATE] . " Args: " . %$args;
 		return;
 	} else {
-		if ( ref( $args->{event} ne 'SCALAR' ) ) {
+		if (ref($args->{event} ne 'SCALAR')) {
 			# Same quietness...
-			warn "Received an malformed event argument from caller " . $_[SESSION]->ID . " -> State: " . $_[STATE] . " Args: " . %$args;
+			warn "Received an malformed event argument from caller "
+				.$_[SESSION]->ID." -> State: " . $_[STATE] . " Args: "
+				.%$args;
 			return;
 		}
 	}
 
-	if ( ! exists $args->{sql} ) {
+	if (!exists($args->{sql})) {
 		# Okay, send the error to the Failure Event
-		$kernel->post( $args->{session}, $args->{event}, {
-			sql				=>	undef,
-			placeholders	=>	undef,
-			error			=>	'sql is not defined!',
+		$kernel->post($args->{session}, $args->{event}, {
+				sql				=>	undef,
+				placeholders	=>	undef,
+				error			=>	'sql is not defined!',
 			}
 		);
 		return;
 	} else {
-		if ( ref( $args->{sql} ) ) {
+		if (ref($args->{sql}) && $args->{action} !~ m/insert/i) {
 			# Okay, send the error to the Failure Event
-			$kernel->post( $args->{session}, $args->{event}, {
-				sql				=>	undef,
-				placeholders	=>	undef,
-				error			=>	'sql is not a scalar!',
+			$kernel->post($args->{session}, $args->{event}, {
+					sql				=>	undef,
+					placeholders	=>	undef,
+					error			=>	'sql is not a scalar!',
 				}
 			);
 			return;
@@ -300,16 +341,16 @@ sub db_handler {
 	}
 
 	# Check for placeholders
-	if ( ! exists $args->{placeholders} ) {
+	if (!exists($args->{placeholders})) {
 		# Create our own empty placeholders
 		$args->{placeholders} = [];
 	} else {
-		if ( ref( $args->{placeholders} ) ne 'ARRAY' ) {
+		if (ref($args->{placeholders}) ne 'ARRAY') {
 			# Okay, send the error to the Failure Event
-			$kernel->post( $args->{session}, $args->{event}, {
-				sql				=>	$args->{sql},
-				placeholders	=>	undef,
-				error			=>	'placeholders is not an array!',
+			$kernel->post($args->{session}, $args->{event}, {
+					sql				=>	$args->{sql},
+					placeholders	=>	undef,
+					error			=>	'placeholders is not an array!',
 				}
 			);
 			return;
@@ -317,22 +358,23 @@ sub db_handler {
 	}
 
 	# Check for primary_key on HASHHASH or ARRAYHASH queries
-	if ( $args->{action} eq 'HASHHASH' || $args->{action} eq 'HASHARRAY' ) {
-		if (!exists $args->{primary_key}) {
-			$kernel->post( $args->{session}, $args->{event}, {
-				sql				=>	$args->{sql},
-				placeholders	=>	undef,
-				error			=>	'primary_key is not defined! It must be a column name or a 1 based index of a column',
+	if ($args->{action} eq 'HASHHASH' || $args->{action} eq 'HASHARRAY') {
+		if (!exists($args->{primary_key})) {
+			$kernel->post($args->{session}, $args->{event}, {
+					sql				=>	$args->{sql},
+					placeholders	=>	undef,
+					error			=>	'primary_key is not defined! It must '
+						.'be a column name or a 1 based index of a column',
 				}
 			);
 			return;
 		} else {
-			if ( ref( $args->{sql} ) ) {
+			if (ref($args->{sql})) {
 				# Okay, send the error to the Failure Event
-				$kernel->post( $args->{session}, $args->{event}, {
-					sql				=>	undef,
-					placeholders	=>	undef,
-					error			=>	'primary_key is not a scalar!',
+				$kernel->post($args->{session}, $args->{event}, {
+						sql				=>	undef,
+						placeholders	=>	undef,
+						error			=>	'primary_key is not a scalar!',
 					}
 				);
 				return;
@@ -341,22 +383,23 @@ sub db_handler {
 	}
 
 	# Check if we have shutdown or not
-	if ( $heap->{shutdown} ) {
+	if ($heap->{shutdown}) {
 		# Do not accept this query
-		$kernel->post( $args->{session}, $args->{event}, {
-			sql				=>	$args->{sql},
-			placeholders	=>	$args->{placeholders},
-			error			=>	'POE::Component::EasyDBI is shutting down now, requests are not accepted!',
+		$kernel->post($args->{session}, $args->{event}, {
+				sql				=>	$args->{sql},
+				placeholders	=>	$args->{placeholders},
+				error			=>	'POE::Component::EasyDBI is shutting down '
+					.'now, requests are not accepted!',
 			}
 		);
 		return;
 	}
 
 	# Increment the refcount for the session that is sending us this query
-	$kernel->refcount_increment( $_[SENDER]->ID(), 'EasyDBI' );
+	$kernel->refcount_increment($_[SENDER]->ID(), 'EasyDBI');
 
 	# Okay, fire off this query!
-	$kernel->yield( 'send_query', $args );
+	$kernel->yield('send_query', $args);
 }
 
 # This subroutine starts the process of sending a query
@@ -372,10 +415,10 @@ sub send_query {
 	$args->{id} = $heap->{idcounter}++;
 
 	# Add this query to the queue
-	push( @{ $heap->{queue} }, { %{ $args } } );
+	push(@{ $heap->{queue} }, { %{ $args } });
 
 	# Send the query!
-	$kernel->call( $_[SESSION], 'check_queue' );
+	$kernel->call($_[SESSION], 'check_queue');
 }
 
 # This subroutine does the meat - sends queries to the subprocess
@@ -383,35 +426,34 @@ sub check_queue {
 	my ($kernel, $heap) = @_[KERNEL,HEAP];
 	
 	# Check if the subprocess is currently active
-	if ( ! $heap->{active} ) {
+	if (!$heap->{active}) {
 		# Check if we have a query in the queue
-		if ( scalar( @{ $heap->{queue} } ) > 0 ) {
+		if (scalar(@{ $heap->{queue} }) > 0) {
 			# Copy what we need from the top of the queue
 			my %queue;
-			$queue{id} = @{ $heap->{queue} }[0]->{id};
-			$queue{sql} = @{ $heap->{queue} }[0]->{sql};
-			$queue{action} = @{ $heap->{queue} }[0]->{action};
-			$queue{placeholders} = @{ $heap->{queue} }[0]->{placeholders};
+			foreach (qw( id sql action placeholders)) {
+				$queue{$_} = $heap->{queue}->[0]->{$_};
+			}
 			# check for primary_key
-			if (exists(@{ $heap->{queue} }[0]->{primary_key})) {
-				$queue{primary_key} = @{ $heap->{queue} }[0]->{primary_key};
+			if (exists($heap->{queue}->[0]->{primary_key})) {
+				$queue{primary_key} = $heap->{queue}->[0]->{primary_key};
 			}
 			# chunked
-			if (exists(@{ $heap->{queue} }[0]->{chunked})) {
-				$queue{chunked} = @{ $heap->{queue} }[0]->{chunked};
+			if (exists($heap->{queue}->[0]->{chunked})) {
+				$queue{chunked} = $heap->{queue}->[0]->{chunked};
 			}
 			# and seperator
-			if (exists(@{ $heap->{queue} }[0]->{seperator})) {
-				$queue{seperator} = @{ $heap->{queue} }[0]->{seperator};
+			if (exists($heap->{queue}->[0]->{seperator})) {
+				$queue{seperator} = $heap->{queue}->[0]->{seperator};
 			}
 
 			# Send data only if we are not shutting down...
-			if ( $heap->{shutdown} != 2 ) {
+			if ($heap->{shutdown} != 2) {
 				# Set the child to 'active'
 				$heap->{active} = 1;
 		
 				# Put it in the wheel
-				$heap->{wheel}->put( \%queue );
+				$heap->{wheel}->put(\%queue);
 			}
 		}
 	}
@@ -422,10 +464,10 @@ sub start {
 	my ($kernel, $heap) = @_[KERNEL,HEAP];
 	
 	# Set up the alias for ourself
-	$kernel->alias_set( $heap->{alias} );
+	$kernel->alias_set($heap->{alias});
 
 	# Create the wheel
-	$kernel->yield( 'setup_wheel' );
+	$kernel->yield('setup_wheel');
 }
 
 # This sets up the WHEEL
@@ -433,21 +475,22 @@ sub setup_wheel {
 	my ($kernel, $heap) = @_[KERNEL,HEAP];
 	
 	# Are we shutting down?
-	if ( $heap->{shutdown} ) {
+	if ($heap->{shutdown}) {
 		# Do not re-create the wheel...
 		return;
 	}
 
 	# Check if we should set up the wheel
-	if ( $heap->{retries} == $heap->{max_retries} ) {
-		die 'POE::Component::EasyDBI tried ' . $heap->{max_retries} . ' times to create a Wheel and is giving up...';
+	if ($heap->{retries} == $heap->{max_retries}) {
+		die 'POE::Component::EasyDBI tried '.$heap->{max_retries}
+			.' times to create a Wheel and is giving up...';
 	}
 
 	# Set up the SubProcess we communicate with
 	$heap->{wheel} = POE::Wheel::Run->new(
 		# What we will run in the separate process
 		'Program'		=>	\&POE::Component::EasyDBI::SubProcess::main,
-		'ProgramArgs'	=>	[ $heap->{dsn}, $heap->{username}, $heap->{password} ],
+		'ProgramArgs'	=>	[ $heap->{opts} ],
 
 		# Kill off existing FD's
 		'CloseOnCall'	=>	1,
@@ -465,13 +508,16 @@ sub setup_wheel {
 		'StderrEvent'	=>	'child_STDERR',
 
 		# Set our filters
-		'StdinFilter'	=>	POE::Filter::Reference->new(),		# Communicate with child via Storable::nfreeze
-		'StdoutFilter'	=>	POE::Filter::Reference->new(),		# Receive input via Storable::nfreeze
-		'StderrFilter'	=>	POE::Filter::Line->new(),		# Plain ol' error lines
+		# Communicate with child via Storable::nfreeze
+		'StdinFilter'	=>	POE::Filter::Reference->new(),
+		# Receive input via Storable::nfreeze
+		'StdoutFilter'	=>	POE::Filter::Reference->new(),
+		# Plain ol' error lines
+		'StderrFilter'	=>	POE::Filter::Line->new(),
 	);
 
 	# Check for errors
-	if ( ! defined $heap->{wheel} ) {
+	if (! defined $heap->{wheel}) {
 		die 'Unable to create a new wheel!';
 	} else {
 		# Increment our retry count
@@ -481,7 +527,7 @@ sub setup_wheel {
 		$heap->{active} = 0;
 
 		# Check for queries
-		$kernel->call( $_[SESSION], 'check_queue' );
+		$kernel->call($_[SESSION], 'check_queue');
 	}
 }
 
@@ -497,25 +543,23 @@ sub delete_query {
 	my $id = $_[ARG0];
 
 	# Validation
-	if ( ! defined $id ) {
+	if (!defined($id)) {
 		# Debugging
-		if ( DEBUG ) {
-			warn 'In Delete_Query event with no arguments!';
-		}
+		DEBUG && warn 'In Delete_Query event with no arguments!';
 		return;
 	}
 
 	# Check if the id exists + not at the top of the queue :)
-	if ( defined @{ $heap->{queue} }[0] ) {
-		if ( @{ $heap->{queue} }[0]->{id} eq $id ) {
+	if (defined($heap->{queue}->[0])) {
+		if ($heap->{queue}->[0]->{id} eq $id) {
 			# Query is still active, nothing we can do...
 			return undef;
 		} else {
 			# Search through the rest of the queue and see what we get
-			foreach my $count ( @{ $heap->{queue} } ) {
-				if ( $heap->{queue}->[ $count ]->{id} eq $id ) {
+			foreach my $count (@{ $heap->{queue} }) {
+				if ($heap->{queue}->[$count]->{id} eq $id) {
 					# Found a match, delete it!
-					splice( @{ $heap->{queue} }, $count, 1 );
+					splice(@{ $heap->{queue} }, $count, 1);
 
 					# Return success
 					return 1;
@@ -533,23 +577,21 @@ sub child_closed {
 	my ($kernel, $heap) = @_[KERNEL,HEAP];
 	
 	# Emit debugging information
-	if ( DEBUG ) {
-		warn 'POE::Component::EasyDBI\'s Wheel died! Restarting it...';
-	}
+	DEBUG && warn 'POE::Component::EasyDBI\'s Wheel died! Restarting it...';
 
 	# Create the wheel again
 	delete $heap->{wheel};
-	$kernel->call( $_[SESSION], 'setup_wheel' );
+	$kernel->call($_[SESSION], 'setup_wheel');
 }
 
 # Handles child error
 sub child_error {
 	# Emit warnings only if debug is on
-	if ( DEBUG ) {
+	DEBUG && do {
 		# Copied from POE::Wheel::Run manpage
-		my ( $operation, $errnum, $errstr ) = @_[ ARG0 .. ARG2 ];
+		my ($operation, $errnum, $errstr) = @_[ARG0 .. ARG2];
 		warn "POE::Component::EasyDBI got an $operation error $errnum: $errstr\n";
-	}
+	};
 }
 
 # Handles child STDOUT output
@@ -557,50 +599,62 @@ sub child_STDOUT {
 	my ($kernel, $heap, $data) = @_[KERNEL,HEAP,ARG0];
 	
 	# Validate the argument
-	if ( ref( $data ) ne 'HASH' ) {
+	if (ref($data) ne 'HASH') {
 		warn "POE::Component::EasyDBI did not get a hash from the child ( $data )";
 		return;
 	}
 
 	# Check for special DB messages with ID of 'DBI'
-	if ( $data->{id} eq 'DBI' ) {
+	if ($data->{id} eq 'DBI') {
 		# Okay, we received a DBI error -> error in connection...
 
+		if ($heap->{no_connect_failures}) {
+			my $query_copy = {};
+			if (defined($heap->{queue}->[0])) {
+				$query_copy = { %{ $heap->{queue}[0] } };
+			}
+			$query_copy->{error} = $data->{error};
+			if (ref($heap->{opts}{connect_error})) {
+				$kernel->post(@{$heap->{opts}{connect_error}}, $query_copy);
+			} elsif ($query_copy->{session} && $query_copy->{event}) {
+				$kernel->post($query_copy->{session}, $query_copy->{event}, $query_copy);
+			} else {
+				warn "No connect_error defined and no querys in the queue while "
+				."error occurred: $data->{error}";
+			}
+#			print "DBI error: $data->{error}, retrying\n";
+			return;
+		}
+		
 		# Shutdown ourself!
-		$kernel->call( $_[SESSION], 'shutdown', 'NOW' );
+		$kernel->call($_[SESSION], 'shutdown', 'NOW');
 
 		# Too bad that we have to die...
-		croak( "Could not connect to DBI: $data->{error}" );
+		croak("Could not connect to DBI or database went away: $data->{error}");
 	}
 
 	my $query;
 	my $refcount_decrement = 0;
 	
 	if (exists($data->{chunked})) {
-				
 		# Get the query from the queue
-		for my $i ( 0 .. $#{ $heap->{queue} } ) {
-			if ($heap->{queue}[$i]->{id} eq $data->{id}) {
-				$query = $heap->{queue}[$i];
-				if (exists($data->{last_chunk})) {
-					# last chunk, delete it out of the queue
-					splice( @{ $heap->{queue} }, $i, 1 );
-					$refcount_decrement = 1;
-				}
-				last;
-			}
+		# XXX this should be the first one anyway
+		# TODO check this and adjust
+		$query = $heap->{queue}->[0];
+		if (exists($data->{last_chunk})) {
+			# last chunk, delete it out of the queue
+			shift(@{ $heap->{queue} });
+			$refcount_decrement = 1;
 		}
-		unless ( defined $query ) {
-			warn "Internal error in queue/child consistency! Chunk query not found in queue ( CHILD: $data->{id} ) Please notify author!";
-		}
-		
 	} else {
 		# Check to see if the ID matches with the top of the queue
-		if ( $data->{id} ne @{ $heap->{queue} }[0]->{id} ) {
-			die "Internal error in queue/child consistency! ( CHILD: $data->{id} QUEUE: @{ $heap->{queue} }[0]->{id} )";
+		if ($data->{id} ne $heap->{queue}->[0]->{id}) {
+			die "Internal error in queue/child consistency! ( CHILD: $data->{id} "
+			."QUEUE: $heap->{queue}->[0]->{id} )";
 		}
+		
 		# Get the query from the top of the queue
-		$query = shift( @{ $heap->{queue} } );
+		$query = shift(@{ $heap->{queue} });
 		$refcount_decrement = 1;
 	}
 
@@ -613,15 +667,15 @@ sub child_STDOUT {
 		$query_copy->{$k} = $data->{$k};
 	}
 	
-	$kernel->post( $query->{session}, $query->{event}, $query_copy );
+	$kernel->post($query->{session}, $query->{event}, $query_copy);
 
 	# Decrement the refcount for the session that sent us a query
 	if ($refcount_decrement == 1) {
 		$heap->{active} = 0;
-		$kernel->refcount_decrement( $query->{session}, 'EasyDBI' );
+		$kernel->refcount_decrement($query->{session}, 'EasyDBI');
 
 		# Now, that we have got a result, check if we need to send another query
-		$kernel->call( $_[SESSION], 'check_queue' );
+		$kernel->call($_[SESSION], 'check_queue');
 	}
 
 }
@@ -631,13 +685,19 @@ sub child_STDERR {
 	my $input = $_[ARG0];
 
 	# Skip empty lines as the POE::Filter::Line manpage says...
-	if ( $input eq '' ) { return }
+	if ($input eq '') { return }
 
-	warn "POE::Component::EasyDBI Got STDERR from child, which should never happen ( $input )";
+	warn "$input\n";
 }
 
 # End of module
 1;
+
+#=item C<use_cancel>
+#
+#Optional. If set to a true value, it will install a signal handler that will
+#call $sth->cancel when a INT signal is received by the sub-process.  You may
+#want to read the docs on your driver to see if this is supported.
 
 __END__
 
@@ -747,6 +807,28 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 						event => 'result_handler',
 					}
 				);
+
+				$_[KERNEL]->post( 'EasyDBI',
+					insert => {
+						sql => 'INSERT INTO zipcodes (zip,city,state) VALUES (?,?,?)',
+						placeholders => [ '98004', 'Bellevue', 'WA' ],
+						event => 'insert_handler',
+					}
+				);
+
+				$_[KERNEL]->post( 'EasyDBI',
+					insert => {
+						hash => { username => 'test' , pass => 'sUpErSeCrEt', name => 'John' },
+						table => 'users',
+						last_insert_id => {
+							field => 'user_id', # mysql uses SELECT LAST_INSERT_ID instead
+							table => 'users',   # of these values, just specify {} for mysql
+						},
+						# or last_insert_id can be => 'SELECT LAST_INSERT_ID()' or some other
+						# query that will return a value
+					},
+				);
+				
 				# 3 ways to shutdown
 
 				# This will let the existing queries finish, then shutdown
@@ -819,7 +901,8 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 		#	placeholders => The placeholders
 		#	action => 'hashhash'
 		#	cols => array of columns in order (to help recreate the sql order)
-		#	primary_key => column you specified as primary key, if you specifed a number, the real column name will be here
+		#	primary_key => column you specified as primary key, if you specifed
+		#		a number, the real column name will be here
 		#	error => Error occurred, check this first
 		# }
 	}
@@ -832,7 +915,8 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 		#	placeholders => The placeholders
 		#	action => 'hashhash'
 		#	cols => array of columns in order (to help recreate the sql order)
-		#	primary_key => column you specified as primary key, if you specifed a number, the real column name will be here
+		#	primary_key => column you specified as primary key, if you specifed
+		#			a number, the real column name will be here
 		#	error => Error occurred, check this first
 		# }
 	}
@@ -841,7 +925,8 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 		# For array calls, we receive an array
 		# $_[ARG0] = {
 		#	sql => The SQL you sent
-		#	result	=> an array, if multiple fields are used, they are comma seperated (specify seperator in event call to change this)
+		#	result	=> an array, if multiple fields are used, they are comma
+		#			seperated (specify seperator in event call to change this)
 		#	placeholders => The placeholders
 		#	action => 'array'
 		#	seperator => you sent  # optional!
@@ -864,10 +949,28 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 		# For keyvalhash calls, we receive a hash
 		# $_[ARG0] = {
 		#	sql => The SQL you sent
-		#	result	=> a hash  # first field is the key, second field is the value
+		#	result	=> a hash  # first field is the key, second is the value
 		#	placeholders => The placeholders
 		#	action => 'keyvalhash'
 		#	error => Error occurred, check this first
+		# }
+	}
+	
+	sub insert_handle {
+		# $_[ARG0] = {
+		# 	sql => The SQL you sent
+		# 	placeholders => The placeholders
+		# 	action => 'insert'
+		# 	table => 'users',
+		# 	# for postgresql, or others?
+		# 	last_insert_id => { # used to retrieve the insert id of the inserted row
+		#		field => The field of id requested
+		#		table => The table the holds the field
+		# 	},
+		# 	-OR-
+		# 	last_insert_id => 'SELECT LAST_INSERT_ID()', # mysql style
+		# 	result => the id from the last_insert_id post query
+		# 	error => Error occurred, check this first
 		# }
 	}
 
@@ -880,8 +983,9 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 
 =head1 DESCRIPTION
 
-This module works by creating a new session, then spawning a child process to do
-the DBI querys. That way, your main POE process can continue servicing other clients.
+This module works by creating a new session, then spawning a child process
+to do the DBI querys. That way, your main POE process can continue servicing
+other clients.
 
 The standard way to use this module is to do this:
 
@@ -896,7 +1000,7 @@ The standard way to use this module is to do this:
 
 =head2 Starting EasyDBI
 
-To start EasyDBI, just call it's new method.
+To start EasyDBI, just call it's new method. ( create also works )
 
 This one is for Postgresql:
 
@@ -915,12 +1019,14 @@ This one is for mysql:
 		username	=> 'user',
 		password	=> 'pass',
 	);
-	
+
 This method will die on error or return success.
 
-Note the difference between dbname and database, that is dependant on the driver used, NOT EasyDBI
+Note the difference between dbname and database, that is dependant on the 
+driver used, NOT EasyDBI
 
-NOTE: If the SubProcess could not connect to the DB, it will return an error, causing EasyDBI to croak/die.
+NOTE: If the SubProcess could not connect to the DB, it will return an error,
+causing EasyDBI to croak/die.
 
 This constructor accepts 6 different options.
 
@@ -950,7 +1056,31 @@ This is the DB password EasyDBI will use when making the call to connect
 
 =item C<max_retries>
 
-This is the max number of times the database wheel will be restarted, default is 5
+This is the max number of times the database wheel will be restarted, default
+is 5
+
+=item C<ping_timeout>
+
+Optional. This is the timeout to ping the database handle.
+
+=item C<no_connect_failures>
+
+Optional. If set to a true value, connect_error_event will be valid, but not
+nessisary.  If set to a false value, then connection errors will be fatal.
+
+=item C<connect_error_event>
+
+Optional. Supply a array ref of session_id or alias and an event.  Any connect
+errors will be posted to this session and event with the query that failed as
+ARG0 or an empty hash ref if no query was in the queue.  The query will be
+retried, so DON'T resend the query.  If this parameter is not supplied, the
+normal behavour will be to drop the subprocess and restart C<max_retries> times.
+
+=item C<reconnect_wait>
+
+Optional. Defaults to 2 seconds. After a connection failure this is the time
+to wait until another connection is attempted.  Setting this to 0 would not
+be good for your cpu load.
 
 =back
 
@@ -1023,6 +1153,7 @@ For example:
 	{
 		sql				=>	SQL sent
 		result			=>	Scalar value of rows affected
+		rows			=>	Same as result
 		placeholders	=>	Original placeholders
 	}
 
@@ -1277,6 +1408,46 @@ For example:
 		placeholders	=>	Original placeholders
 	}
 
+=item C<insert>
+
+	This is for inserting rows.
+
+	Here's an example on how to trigger this event:
+
+	$_[KERNEL]->post( 'EasyDBI',
+		insert => {
+			sql => 'INSERT INTO zipcodes (zip,city,state) VALUES (?,?,?)',
+			placeholders => [ '98004', 'Bellevue', 'WA' ],
+			event => 'insert_handler',
+		}
+	);
+
+	also an example to retrieve a last insert id
+
+	$_[KERNEL]->post( 'EasyDBI',
+		insert => {
+			hash => { username => 'test' , pass => 'sUpErSeCrEt', name => 'John' },
+			table => 'users',
+			last_insert_id => {
+				field => 'user_id', # mysql uses SELECT LAST_INSERT_ID instead
+				table => 'users',   # of these values, just specify {} for mysql
+			},
+			# or last_insert_id can be => 'SELECT LAST_INSERT_ID()' or some other
+			# query that will return a value
+		},
+	);
+
+	The Success Event handler will get a hash in ARG0:
+	{
+		sql				=>	SQL sent
+		table			=>	Table from insert
+		placeholders	=>	Original placeholders
+		last_insert_id	=>	The original hash or scalar sent
+		insert_id		=>	Insert id if last_insert_id is used
+		rows			=>	Number of rows affected
+		result			=>	Same as rows
+	}
+
 =item C<shutdown>
 
 	$kernel->post( 'EasyDBI', 'shutdown' );
@@ -1333,7 +1504,12 @@ This is the success/failure event, triggered whenever a query finished successfu
 
 It will get a hash in ARG0, consult the specific queries on what you will get.
 
+***** NOTE *****
+
 In the case of an error, the key 'error' will have the specific error that occurred
+Always, always, _always_ check for this in this event.
+
+***** NOTE *****
 
 =item C<seperator>
 
@@ -1398,7 +1574,7 @@ for POE::Component::SimpleDBI the basis of this PoCo
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2003 by David Davis and Teknikill Software
+Copyright 2003-2004 by David Davis and Teknikill Software
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.

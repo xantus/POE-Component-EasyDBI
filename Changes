@@ -1,5 +1,14 @@
 Revision history for POE::Component::EasyDBI.
 
+0.05 Mon Oct 19 00:25:00 2004
+	- added create method, it just calls new
+	- added insert query type
+	- bumped up the DBI required version to 1.38
+		because of the last_insert_id use for inserts
+	- added better reconnect handling
+	- added several options for reconnecting
+	- objectized the subprocess, it's more efficient
+
 0.04 Thu Sep 23 11:25:00 2004
 	- added ability to specify session id
 
