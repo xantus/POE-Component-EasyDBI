@@ -1,5 +1,8 @@
 Revision history for POE::Component::EasyDBI.
 
-0.1 Tue Oct 21 18:18:28 2003
-	First work based off SimpleDBI, but with easier to more data structures
+0.02 Mon Nov 24 12:00:00 2003
+	- Fixed docs, README and Changes
+
+0.01 Mon Nov 24 10:40:00 2003
+	- First work based off SimpleDBI, but with easier to more data structures
 	and query chunks, and documented each query type

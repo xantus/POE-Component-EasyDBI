@@ -1,4 +1,4 @@
-POE::Component::EasyDBI version 0.01
+POE::Component::EasyDBI version 0.02
 ===================================
 
 This module simplifies DBI usage in POE's multitasking world.
@@ -33,11 +33,12 @@ This module requires these other modules and libraries:
 
 AUTHOR
 
-	David Davis <xantus@cpan.org>
+David Davis <xantus@cpan.org>
 
 CREDITS
-    Apocalypse <apocal@cpan.org>
-	for POE::Component::SimpleDBI the basis of this PoCo
+
+Apocalypse <apocal@cpan.org>
+for POE::Component::SimpleDBI the basis of this PoCo
 	
 COPYRIGHT AND LICENCE
 

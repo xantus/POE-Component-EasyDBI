@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.01 $))[1];
+our $VERSION = (qw($Revision: 0.02 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -866,6 +866,7 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 		#	error => Error occurred, check this first
 		# }
 	}
+
 =head1 ABSTRACT
 
 	This module simplifies DBI usage in POE's multitasking world.
