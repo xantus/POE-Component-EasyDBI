@@ -1,5 +1,9 @@
 Revision history for POE::Component::EasyDBI.
 
+0.09 Wed Dec 22 09:04:00 2004
+	- fixed bug in error checking on inserts
+	- documeted max_retries => -1
+
 0.08 Mon Nov 15 10:14:00 2004
 	- added func and method to subprocess
 	- fixed the variables that were suppose to be passed to the subprocess

@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.08 $))[1];
+our $VERSION = (qw($Revision: 0.09 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -475,7 +475,8 @@ sub db_insert {
 	for my $i ( 0 .. $#queries ) {
 		$data->{sql} = $queries[$i];
 		$data->{placeholders} = $placeholders[$i];
-
+		my $do_last = 0;
+		
 		# Catch any errors
 		try {
 			# Make a new statement handler and prepare the query
@@ -501,8 +502,9 @@ sub db_insert {
 		} catch Error with {
 			my $e = shift;
 			$self->{output} = $self->make_error( $data->{id}, "failed at query #$i : $e" );
-			last;
+			$do_last = 1; # can't use last here
 		};
+		last if ($do_last);
 	}
 
 	# If rows_affected is not undef, that means we were successful

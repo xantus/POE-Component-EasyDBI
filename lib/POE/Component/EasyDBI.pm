@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.08 $))[1];
+our $VERSION = (qw($Revision: 0.09 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -949,7 +949,7 @@ This is the DB password EasyDBI will use when making the call to connect
 =item C<max_retries>
 
 This is the max number of times the database wheel will be restarted, default
-is 5
+is 5.  Set this to -1 to retry forever.
 
 =item C<ping_timeout>
 
