@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.05 $))[1];
+our $VERSION = (qw($Revision: 0.06 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -62,6 +62,8 @@ sub new {
 		no_connect_failures
 		connect_error
 		reconnect_wait
+		connected
+		no_warnings
 	);
 	
 	# check the DSN
@@ -113,6 +115,21 @@ sub new {
 			warn('connect_error must be an array reference that contains at '
 			.'least a session and event, ignoring');
 			delete $opt{connect_error};
+		}
+	}
+	
+	# check for connect event
+	if (exists($opt{connected})) {
+		if (ref($opt{connected}) eq 'ARRAY') {
+			unless ($#{$opt{connect_error}} > 0) {
+				warn('connected must be an array reference that contains '
+				.'at least a session and event, ignoring');
+				delete $opt{connected};
+			}	
+		} else {
+			warn('connected must be an array reference that contains at '
+			.'least a session and event, ignoring');
+			delete $opt{connected};
 		}
 	}
 	
@@ -619,7 +636,7 @@ sub child_STDOUT {
 			} elsif ($query_copy->{session} && $query_copy->{event}) {
 				$kernel->post($query_copy->{session}, $query_copy->{event}, $query_copy);
 			} else {
-				warn "No connect_error defined and no querys in the queue while "
+				warn "No connect_error defined and no queries in the queue while "
 				."error occurred: $data->{error}";
 			}
 #			print "DBI error: $data->{error}, retrying\n";
@@ -631,6 +648,17 @@ sub child_STDOUT {
 
 		# Too bad that we have to die...
 		croak("Could not connect to DBI or database went away: $data->{error}");
+	}
+
+	if ($data->{id} eq 'DBI-CONNECTED') {
+		if (ref($heap->{opts}{connected})) {
+			my $query_copy = {};
+			if (defined($heap->{queue}->[0])) {
+				$query_copy = { %{ $heap->{queue}[0] } };
+			}
+			$kernel->post(@{$heap->{opts}{connected}}, $query_copy);
+		}
+		return;
 	}
 
 	my $query;
@@ -686,6 +714,8 @@ sub child_STDERR {
 
 	# Skip empty lines as the POE::Filter::Line manpage says...
 	if ($input eq '') { return }
+
+	return if ($_[HEAP]->{opts}->{no_warnings});
 
 	warn "$input\n";
 }
@@ -984,7 +1014,7 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 =head1 DESCRIPTION
 
 This module works by creating a new session, then spawning a child process
-to do the DBI querys. That way, your main POE process can continue servicing
+to do the DBI queries. That way, your main POE process can continue servicing
 other clients.
 
 The standard way to use this module is to do this:
@@ -1061,14 +1091,15 @@ is 5
 
 =item C<ping_timeout>
 
-Optional. This is the timeout to ping the database handle.
+Optional. This is the timeout to ping the database handle.  If set to 0 the
+database will be pinged before every query.  The default is 0.
 
 =item C<no_connect_failures>
 
-Optional. If set to a true value, connect_error_event will be valid, but not
-nessisary.  If set to a false value, then connection errors will be fatal.
+Optional. If set to a true value, the connect_error event will be valid, but not
+nessary.  If set to a false value, then connection errors will be fatal.
 
-=item C<connect_error_event>
+=item C<connect_error>
 
 Optional. Supply a array ref of session_id or alias and an event.  Any connect
 errors will be posted to this session and event with the query that failed as
@@ -1081,6 +1112,13 @@ normal behavour will be to drop the subprocess and restart C<max_retries> times.
 Optional. Defaults to 2 seconds. After a connection failure this is the time
 to wait until another connection is attempted.  Setting this to 0 would not
 be good for your cpu load.
+
+=item C<connected>
+
+Optional. Supply a array ref of session_id or alias and an event.  When
+the component makes a successful connection this event will be called
+with the next query as ARG0 or an empty hash ref if no queries are in the queue.
+DON'T resend the query, it will be processed.
 
 =back
 
@@ -1530,6 +1568,10 @@ All multi-row queries can be chunked.
 You can pass the parameter 'chunked' with a number of rows to fire the 'event' event
 for every 'chunked' rows, it will fire the 'event' event. ( a 'chunked' key will exist )
 A 'last_chunk' key will exist when you have received the last chunk of data from the query
+
+=item C<last_insert_id>
+
+See the insert event for a example of its use.
 
 =back
 

@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.05 $))[1];
+our $VERSION = (qw($Revision: 0.06 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -35,7 +35,7 @@ sub main {
 
 	$self->{lastpingtime} = time();
 
-	if (defined $self->{use_cancel}) {
+	if (defined($self->{use_cancel})) {
 		# Signal INT causes query cancel
 		# XXX disabled for now
 		#$SIG{INT} = sub { if ($sth) { $sth->cancel; } };
@@ -46,11 +46,9 @@ sub main {
 
 	return if ($self->{done});
 
-#	print STDERR "[2] going to process\n";
 	# check for data in queue first
 	$self->process();
 
-#	print STDERR "[3] going to read\n";
 	# listen for commands from our parent
 	READ: while ( sysread( STDIN, my $buffer = '', 1024 ) ) {
 		# Feed the line into the filter
@@ -66,29 +64,22 @@ sub main {
 		# $d->{last_insert_id}	= SCALAR|HASH	->	HASH REF OF TABLE AND FIELD OR SCALAR OF A QUERY TO RUN AFTER
 
 		push(@{$self->{queue}},@$d);
-#		print STDERR "[4] going to process\n";
 		# process all in the queue until a problem occurs or done
 		REDO:
 		unless ($self->process()) {
 			# oops problem...
-#			print STDERR "[5] oops, problem\n";
 			if ($self->{reconnect}) {
-#				print STDERR "[6] going to reconnect\n";
 				# need to reconnect
 				delete $self->{reconnect};
 				# keep trying to connect
 				while (!$self->connect()) {	}
 				# and bail when we are told
 				last READ if ($self->{done});
-#				print STDERR "[7] continueing out of process()\n";
 				goto REDO;
 			}
 		}
-#		print STDERR "[8] out of loop\n";
 	}
 
-#	print STDERR "[9] bye\n";
-	
 	# Arrived here due to error in sysread/etc
 	if ($self->{dbh}) {
 		$self->{dbh}->disconnect();
@@ -98,7 +89,6 @@ sub main {
 sub connect {
 	my $self = shift;
 	
-#	print STDERR "at connect [4]\n";
 	$self->{output} = undef;
 	$self->{error} = undef;
 
@@ -110,7 +100,7 @@ sub connect {
 
 			# We set some configuration stuff here
 			{
-				# We do not want users seeing 'spam' on the commandline...
+				# quiet!!
 				'PrintError'	=>	0,
 
 				'PrintWarn'		=>	0,
@@ -138,7 +128,11 @@ sub connect {
 	} elsif ($self->{error}) {
 		# QUIT
 		$self->{done} = 1;
+		return 1;
 	}
+	
+	# send connect notice
+	$self->output({ id => 'DBI-CONNECTED' });
 	
 	return 1;
 }
@@ -161,11 +155,10 @@ sub process {
 		my $now = time();
 		my $needping = (($self->{ping_timeout} == 0 or $self->{ping_timeout} > 0)
 			and (($now - $self->{lastpingtime}) >= $self->{ping_timeout})) ? 1 : 0;
-#			print STDERR "needping[$needping]\n";
 			
 		if ($self->{dbh}) {
+# Don't work:
 #			unless ($self->{dbh}->{Active}) {
-#				print STDERR "reconnecting [2]\n";
 #				# put the query back on the stack
 #				unshift(@{$self->{queue}},$input);
 #				# and reconnect
@@ -173,14 +166,21 @@ sub process {
 #				$self->{reconnect} = 1;
 #				return 0;
 #			}
-			if ($needping && eval{ $self->{dbh}->ping(); }) {
-#				print STDERR "pinged\n";
-				$self->{lastpingtime} = $now;
+			if ($needping) {
+				if (eval{ $self->{dbh}->ping(); }) {
+					$self->{lastpingtime} = $now;
+				} else {
+					# put the query back on the stack
+					unshift(@{$self->{queue}},$input);
+					# and reconnect
+					$self->{dbh}->disconnect();
+					$self->{reconnect} = 1;
+					return 0;
+				}
 			}
 			#} elsif (!$self->{dbh}) {
 		} else {
 			#die "Database gone? : $DBI::errstr";
-#			print STDERR "reconnecting\n";
 			# put the query back on the stack
 			unshift(@{$self->{queue}},$input);
 			# and reconnect
@@ -228,7 +228,9 @@ sub process {
 		}
 		if ($input->{id} eq 'DBI' || ($self->{output}->{error}
 			&& ($self->{output}->{error} =~ m/no connection to the server/i
-			|| $self->{output}->{error} =~ m/server has gone away/i))) {
+			|| $self->{output}->{error} =~ m/server has gone away/i
+			|| $self->{output}->{error} =~ m/server closed the connection/i
+			|| $self->{output}->{error} =~ m/connect failed/i))) {
 			unshift(@{$self->{queue}},$input);
 			$self->{dbh}->disconnect();
 			$self->{reconnect} = 1;
@@ -306,21 +308,6 @@ sub db_single {
 		$self->{output} = $self->make_error( $data->{id}, "SINGLE is for SELECT queries only! ( $data->{sql} )" );
 		return;
 	}
-
-# TODO perhaps a warning here...
-# I don't like anything automaticly modifying my querys
-
-#	# See if we have a 'LIMIT 1' in the end
-#	if ( $data->{sql} =~ /LIMIT\s*\d*$/i ) {
-#		# Make sure it is LIMIT 1
-#		if ( $data->{sql} !~ /LIMIT\s*1$/i ) {
-#			# Not consistent with this interface
-#			$self->{output} = $self->make_error( $data->{id}, "SINGLE -> SQL must not have a LIMIT clause ( $data->{sql} )" );
-#		}
-#	} else {
-#		# Insert 'LIMIT 1' to the string to give the database engine some hints...
-#		$data->{sql} .= ' LIMIT 1';
-#	}
 
 	# Catch any errors
 	try {
@@ -1188,9 +1175,7 @@ sub output {
 	print STDOUT @$outdata;
 }
 
-# End of module
 1;
-
 
 __END__
 
@@ -1231,7 +1216,7 @@ Apocalypse E<lt>apocal@cpan.orgE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2003 by David Davis and Teknikill Software
+Copyright 2003-2004 by David Davis and Teknikill Software
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.

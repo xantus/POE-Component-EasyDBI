@@ -1,6 +1,11 @@
 Revision history for POE::Component::EasyDBI.
 
-0.05 Mon Oct 19 00:25:00 2004
+0.06 Tue Oct 19 11:05:00 2004
+	- fixed typo of connect_error event
+	- added connected parameter
+	- added an oracle error check to subprocess
+
+0.05 Tue Oct 19 00:25:00 2004
 	- added create method, it just calls new
 	- added insert query type
 	- bumped up the DBI required version to 1.38

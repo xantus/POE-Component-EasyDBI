@@ -1,4 +1,4 @@
-POE::Component::EasyDBI version 0.03
+POE::Component::EasyDBI
 ===================================
 
 This module simplifies DBI usage in POE's multitasking world.
