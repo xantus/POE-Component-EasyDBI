@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.02 $))[1];
+our $VERSION = (qw($Revision: 0.03 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -306,7 +306,7 @@ sub db_do {
 		} else {
 			# Execute the query
 			try {
-				$rows_affected = $sth->execute( $data->{placeholders} );
+				$rows_affected = $sth->execute( @{ $data->{placeholders} } );
 			} catch Error with {
 				die $sth->errstr;
 			};

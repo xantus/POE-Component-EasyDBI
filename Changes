@@ -1,5 +1,8 @@
 Revision history for POE::Component::EasyDBI.
 
+0.03 Mon Jan 02 10:07:00 2004
+	- 'bout time I fixed that bug that came from using SimpleDBI as my base :)
+
 0.02 Mon Nov 24 12:00:00 2003
 	- Fixed docs, README and Changes
 
