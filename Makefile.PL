@@ -13,6 +13,11 @@ WriteMakefile(
 		'Carp'		=>	'0',
 #		'DBD::AnyData'	=>	'0',
     },
+	'dist'         => {
+		'SUFFIX'       => ".gz",
+		'DIST_DEFAULT' => 'all tardist',
+		'COMPRESS'     => "gzip -9vf",
+	},
 
     ($] >= 5.005 ?    ## Add these new keywords supported since 5.005
 		(ABSTRACT_FROM	=> 'lib/POE/Component/EasyDBI.pm', # retrieve abstract from module

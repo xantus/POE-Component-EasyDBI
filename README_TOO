@@ -29,7 +29,7 @@ SYNOPSIS
                                             insert => {
                                                     insert => [
                                                             { id => 1, username => 'foo' },
-                                                            { id => 2. username => 'bar' },
+                                                            { id => 2, username => 'bar' },
                                                             { id => 3, username => 'baz' },
                                                     ],
                                             },
@@ -159,6 +159,11 @@ DESCRIPTION
         this when using DBD::AnyData. This can be overridden with each
         query.
 
+    "alt_fork"
+        Optional. If true, an alternate type of fork will be used for the
+        database process. This usually results in lower memory use of the
+        child. *Experimental*
+
   Events
     There is only a few events you can trigger in EasyDBI. They all share a
     common argument format, except for the shutdown event.
@@ -238,7 +243,8 @@ DESCRIPTION
                 }
 
     "single"
-                This query is for those queries where you will get exactly 1 row and column back.
+                This query is for those queries where you will get exactly one row and
+                column back.
 
                 Internally, it does this:
 
@@ -265,7 +271,8 @@ DESCRIPTION
                 }
 
     "arrayhash"
-                This query is for those queries where you will get more than 1 row and column back.
+                This query is for those queries where you will get more than one row and
+                column back.
 
                 Internally, it does this:
 
@@ -295,7 +302,8 @@ DESCRIPTION
                 }
 
     "hashhash"
-                This query is for those queries where you will get more than 1 row and column back.
+                This query is for those queries where you will get more than one row and
+                column back.
 
                 The primary_key should be UNIQUE! If it is not, then use hasharray instead.
 
@@ -342,7 +350,8 @@ DESCRIPTION
                 }
 
     "hasharray"
-                This query is for those queries where you will get more than 1 row and column back.
+                This query is for those queries where you will get more than one row 
+                and column back.
 
                 Internally, it does something like this:
 
@@ -387,7 +396,8 @@ DESCRIPTION
                 }
 
     "array"
-                This query is for those queries where you will get more than 1 row with 1 column back.
+                This query is for those queries where you will get more than one row with
+                one column back.
 
                 Internally, it does this:
 
@@ -416,12 +426,14 @@ DESCRIPTION
                 The Success Event handler will get a hash in ARG0:
                 {
                         sql                             =>      SQL sent
-                        result                  =>      Array of scalars (joined with seperator if more than one column is returned)
+                        result                  =>      Array of scalars (joined with seperator if more
+                                than one column is returned)
                         placeholders    =>      Original placeholders
                 }
 
     "hash"
-                This query is for those queries where you will get 1 row with more than 1 column back.
+                This query is for those queries where you will get one row with more than
+                one column back.
 
                 Internally, it does this:
 
@@ -453,7 +465,8 @@ DESCRIPTION
                 }
 
     "keyvalhash"
-                This query is for those queries where you will get 1 row with more than 1 column back.
+                This query is for those queries where you will get one row with more than
+                one column back.
 
                 Internally, it does this:
 
@@ -561,13 +574,15 @@ DESCRIPTION
                 NOTE: This will NOT let the outstanding queries finish!
                 Any queries running will be lost!
 
-                Due to the way POE's queue works, this shutdown event will take some time to propagate POE's queue.
-                If you REALLY want to shut down immediately, do this:
+                Due to the way POE's queue works, this shutdown event will take some time
+                to propagate POE's queue. If you REALLY want to shut down immediately, do
+                this:
 
                 $kernel->call( 'EasyDBI', 'shutdown' => 'NOW' );
 
-                ALL shutdown NOW's send kill -9 to thier children, beware of any transactions that you may be in.
-                Your queries will revert if you are in transaction mode
+                ALL shutdown NOW's send kill -9 to thier children, beware of any 
+                transactions that you may be in. Your queries will revert if you are in
+                transaction mode
 
    Arguments
     They are passed in via the $kernel->post( ... );
@@ -595,7 +610,7 @@ DESCRIPTION
         ***** NOTE *****
 
         In the case of an error, the key 'error' will have the specific
-        error that occurred Always, always, _always_ check for this in this
+        error that occurred. Always, always, _always_ check for this in this
         event.
 
         ***** NOTE *****
@@ -604,8 +619,8 @@ DESCRIPTION
         Query types single, and array accept this parameter. The default is
         a comma (,) and is optional
 
-        If a query has more than 1 column returned, the columns are joined
-        with 'seperator'.
+        If a query has more than one column returned, the columns are joined
+        with the 'seperator'.
 
     "primary_key"
         Query types hashhash, and hasharray accept this parameter. It is
@@ -616,7 +631,7 @@ DESCRIPTION
 
         You can pass the parameter 'chunked' with a number of rows to fire
         the 'event' event for every 'chunked' rows, it will fire the 'event'
-        event. ( a 'chunked' key will exist ) A 'last_chunk' key will exist
+        event. (a 'chunked' key will exist) A 'last_chunk' key will exist
         when you have received the last chunk of data from the query
 
     "last_insert_id"
@@ -624,7 +639,7 @@ DESCRIPTION
 
     (arbitrary data)
         You can pass custom keys and data not mentioned above, BUT I suggest
-        using a precursor like _ in front of your custom keys. For example:
+        using a prefix like _ in front of your custom keys. For example:
 
             $_[KERNEL->post( 'EasyDBI',
                 do => {
@@ -640,8 +655,8 @@ DESCRIPTION
         file for instance) you don't want an upgrade to produce BAD results.
 
   OBJECT METHODS
-    When using new() to spawn/create the EasyDBI object, you can use several
-    methods.
+    When using new() to spawn/create the EasyDBI object, you can use the
+    methods listed below
 
     NOTE: The object interface will be improved in later versions, please
     send suggestions to the author.

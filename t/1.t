@@ -15,7 +15,7 @@ BEGIN {
 SKIP: {
 	eval "use DBD::AnyData";
 	my $have_anydata = ($@) ? 0 : 1;
-	skip "skipping DBD::AnyData tests due to DBD::File being broken", 12;
+	skip "skipping DBD::AnyData tests due to DBD::AnyData and DBD::File being broken", 12;
 	skip "DBD::AnyData not installed", 12 unless $have_anydata;
 
 	POE::Session->create(
@@ -30,6 +30,7 @@ SKIP: {
 					password => '',
 					connected => [ $_[SESSION]->ID, 'connected' ],
 					connect_error => [ $_[SESSION]->ID, 'error' ],
+#					alt_fork => 1,
 				);
 				pass("component_started"); # 5
 				# shouldnt take more than 30 seconds to finish

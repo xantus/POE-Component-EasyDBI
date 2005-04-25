@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.10 $))[1];
+our $VERSION = (qw($Revision: 0.12 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -70,6 +70,7 @@ sub spawn {
 		no_warnings
 		sig_ignore_off
 		no_cache
+		alt_fork
 	);
 	
 	# check the DSN
@@ -551,11 +552,22 @@ sub setup_wheel {
 			.' times to create a Wheel and is giving up...';
 	}
 
+	my %prog = (
+		'Program'		=>	\&POE::Component::EasyDBI::SubProcess::main,
+		'ProgramArgs'	=>	[ $heap->{opts} ],
+	);
+
+	if ($heap->{opts}{alt_fork}) {
+		%prog = (
+			'Program'	=>	"$^X -MPOE::Component::EasyDBI::SubProcess -I".join(' -I',@INC)
+				." -e 'POE::Component::EasyDBI::SubProcess::main(1)'",
+		);
+	}
+
 	# Set up the SubProcess we communicate with
 	$heap->{wheel} = POE::Wheel::Run->new(
 		# What we will run in the separate process
-		'Program'		=>	\&POE::Component::EasyDBI::SubProcess::main,
-		'ProgramArgs'	=>	[ $heap->{opts} ],
+		%prog,
 
 		# Kill off existing FD's
 		'CloseOnCall'	=>	1,
@@ -590,6 +602,10 @@ sub setup_wheel {
 
 		# Set the wheel to inactive
 		$heap->{active} = 0;
+
+		if ($heap->{opts}{alt_fork}) {
+			$heap->{wheel}->put($heap->{opts});
+		}
 
 		# Check for queries
 		$kernel->call($_[SESSION], 'check_queue');
@@ -875,7 +891,7 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 					insert => {
 						insert => [
 							{ id => 1, username => 'foo' },
-							{ id => 2. username => 'bar' },
+							{ id => 2, username => 'bar' },
 							{ id => 3, username => 'baz' },
 						],
 					},
@@ -1014,6 +1030,12 @@ DON'T resend the query, it will be processed.
 
 Optional. If true, prepare_cached won't be called on queries.  Use this when
 using L<DBD::AnyData>.  This can be overridden with each query.
+
+=item C<alt_fork>
+
+Optional. If true, an alternate type of fork will be used for the database
+process.  This usually results in lower memory use of the child.
+*Experimental*
 
 =back
 

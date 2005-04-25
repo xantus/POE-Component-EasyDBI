@@ -1,10 +1,16 @@
 Revision history for POE::Component::EasyDBI.
 
-0.10 Wed Feb 16 14:41:00 2005
+0.12 Sun Apr 24 6:33:00 2005
+	- fixed alt_fork param, v.11 was unreleased anyway
+
+0.11 Sun Apr 24 6:20:00 2005
+	- added option alt_fork that runs the database connection in a 
+		seperate process but not forked. Thanks Apocalypse
+	- fixed version in Subprocess.pm
+
+0.10 Wed Mar 16 15:21:00 2005
 	- moved select(STDERR) stuff to main() in subprocess.pm, oops :)
 	- added object methods, new() returns an object
-	- changed the way the subprocess is spawned
-		It runs as a seperate process but not forked. Thanks Apocalypse
 	- disabled DBD::AnyData tests because DBD::File is broken
 	- fixed docs
 	- documented arbitrary data passing

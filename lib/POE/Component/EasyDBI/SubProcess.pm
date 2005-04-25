@@ -4,8 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-# XXX not needed
-#our $VERSION = (qw($Revision: 0.10 $))[1];
+our $VERSION = (qw($Revision: 0.12 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -19,8 +18,6 @@ use DBI;
 sub new {
 	my ($class, $opts) = @_;
 	my $obj = bless($opts, $class);
-	# Our Filter object
-	$obj->{filter} = POE::Filter::Reference->new();
 	$obj->{queue} = [];
 	$obj->{ping_timeout} = $obj->{ping_timeout} || 0;
 	return $obj;
@@ -28,12 +25,32 @@ sub new {
 
 # This is the subroutine that will get executed upon the fork() call by our parent
 sub main {
-	my $self = __PACKAGE__->new(shift);
-	
 	# Autoflush to avoid weirdness
 	select((select(STDOUT), $| = 1)[0]);
 	select(STDERR);
 	$|++;
+
+	my $self;
+	# check for alternate fork
+	if ($_[0] == 1) {
+		# we need to read in the first
+		my $filter = POE::Filter::Reference->new();
+		my $opts;
+		# get our first option hashref
+		while ( sysread( STDIN, my $buffer = '', 1024 ) ) {
+			$opts = $filter->get( [ $buffer ] );
+			last if (defined $opts);
+		}
+		$self = __PACKAGE__->new(splice(@{$opts},0,1));
+		$self->{filter} = $filter;
+		if (@{$opts}) {
+			push(@{$self->{queue}},@{$opts});
+		}
+		undef $filter;
+	} else {
+		$self = __PACKAGE__->new(shift);
+		$self->{filter} = POE::Filter::Reference->new();
+	}
 
 	$self->{lastpingtime} = time();
 
