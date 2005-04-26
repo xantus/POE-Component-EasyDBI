@@ -4,7 +4,9 @@
 # vim: syntax=perl ts=4
 #########################
 
-use Test::More tests => 15;
+use Test::More tests => 16;
+#use Carp;
+#$SIG{__WARN__} = \&Carp::cluck;
 
 BEGIN {
 	use_ok( 'POE' ); # 1
@@ -15,7 +17,7 @@ BEGIN {
 SKIP: {
 	eval "use DBD::AnyData";
 	my $have_anydata = ($@) ? 0 : 1;
-	skip "skipping DBD::AnyData tests due to DBD::AnyData and DBD::File being broken", 12;
+	skip "skipping DBD::AnyData tests due to DBD::AnyData and DBD::File being broken", 13;
 	skip "DBD::AnyData not installed", 12 unless $have_anydata;
 
 	POE::Session->create(
@@ -32,7 +34,7 @@ SKIP: {
 					connect_error => [ $_[SESSION]->ID, 'error' ],
 #					alt_fork => 1,
 				);
-				pass("component_started"); # 5
+				pass("component_started"); # 4
 				# shouldnt take more than 30 seconds to finish
 				$_[KERNEL]->delay_set(fail => 30);
 			},
@@ -47,7 +49,7 @@ SKIP: {
 				return $_[KERNEL]->call($_[SESSION] => shutdown => 'NOW');
 			},
 			connected => sub {
-				pass("connected"); # 6
+				pass("connected"); # 5
 				$_[KERNEL]->post(db => func => {
 					args => [ 'test', 'CSV', ["id,foo,bar"], 'ad_import' ],
 					event => $_[SESSION]->postback('table_created'),
@@ -64,7 +66,7 @@ SKIP: {
 					fail("create_in_memory_table");
 					return $_[KERNEL]->call($_[SESSION] => shutdown => 'NOW');
 				}
-				pass("create_in_memory_table"); # 7
+				pass("create_in_memory_table"); # 6
 				$_[KERNEL]->post(db => insert => {
 					table => 'test',
 					insert => [
@@ -87,7 +89,7 @@ SKIP: {
 					fail("insert");
 					return $_[KERNEL]->call($_[SESSION] => shutdown => 'NOW');
 				}
-				pass("insert"); # 8
+				pass("insert"); # 7
 				$_[KERNEL]->post(db => hash => {
 					sql => 'SELECT * FROM test WHERE id=?',
 					placeholders => [ 1 ],
@@ -104,7 +106,7 @@ SKIP: {
 					fail("hash");
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}
-				pass("hash"); # 9
+				pass("hash"); # 8
 				$_[KERNEL]->post(db => array => {
 					sql => 'SELECT foo FROM test',
 					event => 'single',
@@ -120,8 +122,7 @@ SKIP: {
 						fail("array");
 						return $_[KERNEL]->call(test => shutdown => 'NOW');
 					}
-					pass("array"); # 10
-	
+					pass("array"); # 9
 					$_[KERNEL]->post(db => single => {
 						sql => 'SELECT id FROM test WHERE id=1',
 						event => 'db_do',
@@ -138,7 +139,7 @@ SKIP: {
 					fail("single");
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}
-				pass("single"); # 11
+				pass("single"); # 10
 				$_[KERNEL]->post(db => do => {
 					sql => 'UPDATE test SET bar=? WHERE id=?',
 					placeholders => [ '\'blah"', 2 ],
@@ -158,7 +159,7 @@ SKIP: {
 					fail("do");
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}
-				pass("do"); # 12
+				pass("do"); # 11
 				$_[KERNEL]->post(db => quote => {
 	#				method => 'quote',
 					sql => '\'blah"',
@@ -177,7 +178,7 @@ SKIP: {
 					fail("quote");
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}
-				pass("quote"); # 13
+				pass("quote"); # 12
 				$_[KERNEL]->post(db => keyvalhash => {
 					sql => 'SELECT id,bar FROM test',
 					event => 'hashhash',
@@ -195,7 +196,7 @@ SKIP: {
 					fail("keyvalhash");
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}
-				pass("keyvalhash"); # 14
+				pass("keyvalhash"); # 13
 				$_[KERNEL]->post(db => hashhash => {
 					sql => 'SELECT * FROM test',
 					primary_key => 'id',
@@ -216,13 +217,13 @@ SKIP: {
 					fail("hashhash");
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}
-				pass("hashhash"); # 15
+				pass("hashhash"); # 14
 				$_[KERNEL]->post(db => arrayhash => {
 					sql => 'SELECT * FROM test ORDER BY id',
-					event => 'done',
+					event => 'arrayarray',
 				});
 			},
-			done => sub {
+			arrayarray => sub {
 				$_[ARG0]->{error} = "incorrect result"
 					unless (defined($_[ARG0]->{result})
 					&& ref($_[ARG0]->{result}) eq 'ARRAY'
@@ -249,7 +250,23 @@ SKIP: {
 					fail("arrayhash");
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}										
-				pass("arrayhash"); # 16
+				pass("arrayhash"); # 15
+				$_[KERNEL]->post(db => arrayarray => {
+					sql => 'SELECT * FROM test ORDER BY id',
+					event => 'done',
+				});
+			},
+			done => sub {
+				$_[ARG0]->{error} = "incorrect result"
+					unless (defined($_[ARG0]->{result})
+					&& ref($_[ARG0]->{result}) eq 'ARRAY'
+					&& !defined($_[ARG0]->{error}));
+				if (defined($_[ARG0]->{error})) {
+					diag("$_[ARG0]->{error}");
+					fail("arrayarray");
+					return $_[KERNEL]->call(test => shutdown => 'NOW');
+				}
+				pass('arrayarray'); # 16
 				$_[KERNEL]->post(test => 'shutdown');
 			},
 			shutdown => sub {

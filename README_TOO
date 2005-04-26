@@ -272,7 +272,7 @@ DESCRIPTION
 
     "arrayhash"
                 This query is for those queries where you will get more than one row and
-                column back.
+                column back. Also see arrayarray
 
                 Internally, it does this:
 
@@ -397,7 +397,7 @@ DESCRIPTION
 
     "array"
                 This query is for those queries where you will get more than one row with
-                one column back.
+                one column back. (or joined columns)
 
                 Internally, it does this:
 
@@ -428,6 +428,36 @@ DESCRIPTION
                         sql                             =>      SQL sent
                         result                  =>      Array of scalars (joined with seperator if more
                                 than one column is returned)
+                        placeholders    =>      Original placeholders
+                }
+
+    "arrayarray"
+                This query is for those queries where you will get more than one row and
+                column back. Also see arrayhash
+
+                Internally, it does this:
+
+                $sth = $dbh->prepare_cached( $SQL );
+                $sth->execute( $PLACEHOLDERS );
+                while ( @row = $sth->fetchrow_array() ) {
+                        push( @results,\@row );
+                }
+                return @results;
+
+                Here's an example on how to trigger this event:
+
+                $kernel->post( 'EasyDBI',
+                        arrayarray => {
+                                sql => 'SELECT this,that FROM my_table WHERE my_id > ?',
+                                event => 'result_handler',
+                                placeholders => [ qw( 2021 ) ],
+                        }
+                );
+
+                The Success Event handler will get a hash in ARG0:
+                {
+                        sql                             =>      SQL sent
+                        result                  =>      Array of array refs
                         placeholders    =>      Original placeholders
                 }
 
@@ -535,7 +565,7 @@ DESCRIPTION
                 }
 
     "func"
-                This is for calling $dbh->func(), available when using L<DBD::AnyData>
+                This is for calling $dbh->func(), available when using DBD::AnyData
         
                 Internally, it does this:
 

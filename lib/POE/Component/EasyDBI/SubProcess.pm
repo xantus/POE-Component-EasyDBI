@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.12 $))[1];
+our $VERSION = (qw($Revision: 0.13 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -231,6 +231,11 @@ sub process {
 			$input->{no_cache} = $self->{no_cache};
 		}
 
+		if (defined($input->{sql})) {
+			# remove beginning whitespace
+			$input->{sql} =~ s/^\s*//;
+		}
+		
 		if ( $input->{action} eq 'func' ) {
 			# Special command to support DBD::AnyData
 			$input->{method} = 'func';
@@ -263,9 +268,12 @@ sub process {
 		} elsif ( $input->{action} eq 'array' ) {
 			# Get many results, then return them all at the same time in an array of comma seperated values
 			$self->db_array( $input );
+		} elsif ( $input->{action} eq 'arrayarray' ) {
+			# Get many results, then return them all at the same time in an array of arrays
+			$self->db_arrayarray( $input );
 		} elsif ( $input->{action} eq 'hash' ) {
 			# Get many results, then return them all at the same time in a hash keyed off the 
-			# on a primary key of course
+			# on a primary key
 			$self->db_hash( $input );
 		} elsif ( $input->{action} eq 'keyvalhash' ) {
 			# Get many results, then return them all at the same time in a hash with
@@ -1077,6 +1085,104 @@ sub db_array {
 					push(@{$result},join(',',@row));
 				}
 				use warnings;
+				if (exists($data->{chunked}) && $data->{chunked} == $rows) {
+					# Make output include the results
+					$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };
+				}
+			}
+			# in the case that our rows == chunk
+			$self->{output} = undef;
+			
+		} catch Error with {
+			die $!;
+			#die $sth->errstr;
+		};
+		
+		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+
+		# Check for any errors that might have terminated the loop early
+		if ( $sth->err() ) {
+			# Premature termination!
+			die $sth->errstr;
+		}
+	} catch Error with {
+		$self->{output} = $self->make_error( $data->{id}, shift );
+	};
+
+	# Check if we got any errors
+	if (!defined($self->{output})) {
+		# Make output include the results
+		$self->{output} = { result => $result, id => $data->{id} };
+		if (exists($data->{chunked})) {
+			$self->{output}->{last_chunk} = 1;
+			$self->{output}->{chunked} = $data->{chunked};
+		}
+	}
+
+	# Finally, we clean up this statement handle
+	if (defined($sth)) {
+		$sth->finish();
+	}
+	
+	return;
+}
+
+sub db_arrayarray {
+	# Get the dbi handle
+	my $self = shift;
+
+	# Get the input structure
+	my $data = shift;
+
+	# Variables we use
+	my $sth = undef;
+	my $result = [];
+
+	# Check if this is a non-select statement
+	if ( $data->{sql} !~ /^SELECT/i ) {
+		$self->{output} = $self->make_error( $data->{id}, "ARRAYARRAY is for SELECT queries only! ( $data->{sql} )" );
+		return;
+	}
+
+	# Catch any errors
+	try {
+		# Make a new statement handler and prepare the query
+		if ($data->{no_cache}) {
+			$sth = $self->{dbh}->prepare( $data->{sql} );
+		} else {
+			# We use the prepare_cached method in hopes of hitting a cached one...
+			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+		}
+
+		# Check for undef'ness
+		if (!defined($sth)) {
+			die 'Did not get a statement handler';
+		} else {
+			# Execute the query
+			try {
+				$sth->execute( @{ $data->{placeholders} } );
+			} catch Error with {
+				die $sth->errstr;
+			};
+			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+		}
+
+		# The result hash
+		my $newdata = {};
+		
+		# Actually do the query!
+		try {
+			my $rows = 0;	
+			while ( my @row = $sth->fetchrow_array() ) {
+				if (exists($data->{chunked}) && defined($self->{output})) {
+					# chunk results ready to send
+					$self->output();
+					$result = [];
+					$rows = 0;
+				}
+				$rows++;
+				# There are warnings when joining a NULL field, which is undef
+				push(@{$result},\@row);
 				if (exists($data->{chunked}) && $data->{chunked} == $rows) {
 					# Make output include the results
 					$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };

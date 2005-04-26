@@ -1,9 +1,12 @@
 Revision history for POE::Component::EasyDBI.
 
-0.12 Sun Apr 24 6:33:00 2005
+0.13 Tue Apr 26 10:30:00 2005
+	- added arrayarray, and a test for it, but tests are still disabled
+	
+0.12 Sun Apr 24 18:33:00 2005
 	- fixed alt_fork param, v.11 was unreleased anyway
 
-0.11 Sun Apr 24 6:20:00 2005
+0.11 Sun Apr 24 18:20:00 2005
 	- added option alt_fork that runs the database connection in a 
 		seperate process but not forked. Thanks Apocalypse
 	- fixed version in Subprocess.pm

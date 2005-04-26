@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.12 $))[1];
+our $VERSION = (qw($Revision: 0.13 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -167,40 +167,22 @@ sub spawn {
 			'child_STDOUT'	=>	\&child_STDOUT,
 			'child_STDERR'	=>	\&child_STDERR,
 
-			# special events
-			'func'			=>  \&db_handler,
-			'method'		=>  \&db_handler,
-
 			# database events
-			'INSERT'		=>	\&db_handler,
-			'insert'		=>	\&db_handler,
-			
-			'DO'			=>	\&db_handler,
-			'do'			=>	\&db_handler,
-			
-			'SINGLE'		=>	\&db_handler,
-			'single'		=>	\&db_handler,
-			
-			'QUOTE'			=>	\&db_handler,
-			'quote'			=>	\&db_handler,
-			
-			'ARRAYHASH'		=>	\&db_handler,
-			'arrayhash'		=>	\&db_handler,
-			
-			'HASHHASH'		=>	\&db_handler,
-			'hashhash'		=>	\&db_handler,
-			
-			'HASHARRAY'		=>	\&db_handler,
-			'hasharray'		=>	\&db_handler,
-			
-			'ARRAY'			=>	\&db_handler,
-			'array'			=>	\&db_handler,
-			
-			'HASH'			=>	\&db_handler,
-			'hash'			=>	\&db_handler,
-			
-			'KEYVALHASH'	=>	\&db_handler,
-			'keyvalhash'	=>	\&db_handler,
+			(map { lc($_) => \&db_handler, uc($_) => \&db_handler } qw(
+				func
+				method
+				insert
+				do
+				single
+				quote
+				arrayhash
+				hashhash
+				hasharray
+				array
+				arrayarray
+				hash
+				keyvalhash
+			)),
 			
 			# Queue handling
 			'send_query'	=>	\&send_query,
@@ -242,6 +224,7 @@ sub spawn {
 				single => [qw( seperator )],
 				insert => [qw( insert hash table last_insert_id )],
 				array => [qw( chunked seperator )],
+				arrayarray => [qw( chunked )],
 				keyvalhash => [qw( primary_key chunked )],
 				hashhash => [qw( primary_key chunked )],
 				hasharray => [qw( primary_key chunked )],
@@ -1156,7 +1139,7 @@ or
 =item C<arrayhash>
 
 	This query is for those queries where you will get more than one row and
-	column back.
+	column back. Also see arrayarray
 
 	Internally, it does this:
 
@@ -1284,7 +1267,7 @@ or
 =item C<array>
 
 	This query is for those queries where you will get more than one row with
-	one column back.
+	one column back. (or joined columns)
 
 	Internally, it does this:
 
@@ -1317,6 +1300,38 @@ or
 			than one column is returned)
 		placeholders	=>	Original placeholders
 	}
+
+=item C<arrayarray>
+
+	This query is for those queries where you will get more than one row and
+	column back. Also see arrayhash
+
+	Internally, it does this:
+
+	$sth = $dbh->prepare_cached( $SQL );
+	$sth->execute( $PLACEHOLDERS );
+	while ( @row = $sth->fetchrow_array() ) {
+		push( @results,\@row );
+	}
+	return @results;
+
+	Here's an example on how to trigger this event:
+
+	$kernel->post( 'EasyDBI',
+		arrayarray => {
+			sql => 'SELECT this,that FROM my_table WHERE my_id > ?',
+			event => 'result_handler',
+			placeholders => [ qw( 2021 ) ],
+		}
+	);
+
+	The Success Event handler will get a hash in ARG0:
+	{
+		sql				=>	SQL sent
+		result			=>	Array of array refs
+		placeholders	=>	Original placeholders
+	}
+
 
 =item C<hash>
 
@@ -1426,7 +1441,7 @@ or
 
 =item C<func>
 
-	This is for calling $dbh->func(), available when using L<DBD::AnyData>
+	This is for calling $dbh->func(), available when using DBD::AnyData
 	
 	Internally, it does this:
 
