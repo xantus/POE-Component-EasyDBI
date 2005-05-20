@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.13 $))[1];
+our $VERSION = (qw($Revision: 0.14 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -540,7 +540,7 @@ sub setup_wheel {
 		'ProgramArgs'	=>	[ $heap->{opts} ],
 	);
 
-	if ($heap->{opts}{alt_fork}) {
+	if ($heap->{opts}{alt_fork} && $^O ne 'MSWin32') {
 		%prog = (
 			'Program'	=>	"$^X -MPOE::Component::EasyDBI::SubProcess -I".join(' -I',@INC)
 				." -e 'POE::Component::EasyDBI::SubProcess::main(1)'",
@@ -552,8 +552,8 @@ sub setup_wheel {
 		# What we will run in the separate process
 		%prog,
 
-		# Kill off existing FD's
-		'CloseOnCall'	=>	1,
+		# Kill off existing FD's unless we're running in HELL^H^H^H^HMSWin32
+		'CloseOnCall'	=>	($^O eq 'MSWin32' ? 0 : 1),
 
 		# Redirect errors to our error routine
 		'ErrorEvent'	=>	'child_error',
@@ -872,6 +872,7 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 			table_created => sub {
 				$_[KERNEL]->post( 'EasyDBI',
 					insert => {
+						# multiple inserts
 						insert => [
 							{ id => 1, username => 'foo' },
 							{ id => 2, username => 'bar' },
@@ -892,6 +893,8 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 
 	This module is easy to use, you'll have DBI calls in your POE program
 	up and running in no time.
+
+	It also works in Windows environments!
 
 =head1 DESCRIPTION
 
@@ -994,7 +997,7 @@ Optional. Supply a array ref of session_id or alias and an event.  Any connect
 errors will be posted to this session and event with the query that failed as
 ARG0 or an empty hash ref if no query was in the queue.  The query will be
 retried, so DON'T resend the query.  If this parameter is not supplied, the
-normal behavour will be to drop the subprocess and restart C<max_retries> times.
+normal behavour will be to drop the subprocess and restart L<max_retries> times.
 
 =item C<reconnect_wait>
 
@@ -1018,7 +1021,7 @@ using L<DBD::AnyData>.  This can be overridden with each query.
 
 Optional. If true, an alternate type of fork will be used for the database
 process.  This usually results in lower memory use of the child.
-*Experimental*
+*Experimental, and WILL NOT work on Windows Platforms*
 
 =back
 
@@ -1590,20 +1593,19 @@ suggestions to the author.
 This retrieves the session ID.  When managing a pool of EasyDBI objects, you
 can set the alias to '' (nothing) and retrieve the session ID in this manner.
 
-    $self->ID
+    $self->ID()
 
 =item C<DESTROY>
 
 This will shutdown EasyDBI.
 
-    $self->DESTROY
+    $self->DESTROY()
 
 =back
 
 =head2 LONG EXAMPLE
 
-	use POE;
-	use POE::Component::EasyDBI;
+	use POE qw( Component::EasyDBI );
 
 	# Set up the DBI
 	POE::Component::EasyDBI->spawn(
@@ -1634,7 +1636,7 @@ This will shutdown EasyDBI.
 				$_[KERNEL]->post( 'EasyDBI',
 					single => {
 						sql => 'Select user_id,user_login from users where user_id = ?',
-						event => 'result_handler',
+						event => 'single_handler',
 						placeholders => [ qw( 144 ) ],
 						seperator => ',', #optional!
 					}
@@ -1650,12 +1652,12 @@ This will shutdown EasyDBI.
 				$_[KERNEL]->post( 'EasyDBI',
 					arrayhash => {
 						sql => 'SELECT user_id,user_login from users where logins = ?',
-						event => 'result_handler',
+						event => 'arrayash_handler',
 						placeholders => [ qw( 53 ) ],
 					}
 				);
 				
-				my $postback = $_[SESSION]->postback("result_handler",3,2,1);
+				my $postback = $_[SESSION]->postback("arrayhash_handler",3,2,1);
 				
 				$_[KERNEL]->post( 'EasyDBI',
 					arrayhash => {
@@ -1663,11 +1665,19 @@ This will shutdown EasyDBI.
 						event => $postback,
 					}
 				);
+				
+				$_[KERNEL]->post( 'EasyDBI',
+					arrayarray => {
+						sql => 'SELECT * from locations',
+						event => 'arrayarray_handler',
+						primary_key => '1', # you can specify a primary key, or a number based on what column to use
+					}
+				);
 
 				$_[KERNEL]->post( 'EasyDBI',
 					hashhash => {
 						sql => 'SELECT * from locations',
-						event => 'result_handler',
+						event => 'hashhash_handler',
 						primary_key => '1', # you can specify a primary key, or a number based on what column to use
 					}
 				);
@@ -1675,7 +1685,7 @@ This will shutdown EasyDBI.
 				$_[KERNEL]->post( 'EasyDBI',
 					hasharray => {
 						sql => 'SELECT * from locations',
-						event => 'result_handler',
+						event => 'hasharray_handler',
 						primary_key => "1",
 					}
 				);
@@ -1684,21 +1694,21 @@ This will shutdown EasyDBI.
 				$_[KERNEL]->post( 'EasyDBI',
 					hash => {
 						sql => 'SELECT * from locations LIMIT 1',
-						event => 'result_handler',
+						event => 'hash_handler',
 					}
 				);
 				
 				$_[KERNEL]->post( 'EasyDBI',
 					array => {
 						sql => 'SELECT location_id from locations',
-						event => 'result_handler',
+						event => 'array_handler',
 					}
 				);
 				
 				$_[KERNEL]->post( 'EasyDBI',
 					keyvalhash => {
 						sql => 'SELECT location_id,location_name from locations',
-						event => 'result_handler',
+						event => 'keyvalhash_handler',
 						# if primary_key isn't used, the first one is assumed
 					}
 				);
@@ -1720,6 +1730,7 @@ This will shutdown EasyDBI.
 							field => 'user_id', # mysql uses SELECT LAST_INSERT_ID instead
 							table => 'users',   # of these values, just specify {} for mysql
 						},
+						event => 'insert_handler',
 						# or last_insert_id can be => 'SELECT LAST_INSERT_ID()' or some other
 						# query that will return a value
 					},
@@ -1830,6 +1841,17 @@ This will shutdown EasyDBI.
 		# }
 	}
 	
+	sub arrayarray_handler {
+		# For array calls, we receive an array ref of array refs
+		# $_[ARG0] = {
+		#	sql => The SQL you sent
+		#	result	=> an array ref of array refs
+		#	placeholders => The placeholders
+		#	action => 'arrayarray'
+		#	error => Error occurred, check this first
+		# }
+	}
+	
 	sub hash_handler {
 		# For hash calls, we receive a hash
 		# $_[ARG0] = {
@@ -1880,9 +1902,7 @@ All of the options are in lowercase.  Query types can be in ALL-CAPS or lowercas
 
 This module will try to keep the SubProcess alive.
 if it dies, it will open it again for a max of 5 retries by
-default, but you can override this behavior by doing something like this:
-
-POE::Component::EasyDBI->spawn( max_retries => 3 );
+default, but you can override this behavior by using L<max_retries>
 
 =head2 EXPORT
 
@@ -1890,19 +1910,8 @@ Nothing.
 
 =head1 SEE ALSO
 
-L<DBI>
-
-L<POE>
-
-L<POE::Wheel::Run>
-
-L<POE::Component::DBIAgent>
-
-L<POE::Component::LaDBI>
-
-L<POE::Component::SimpleDBI>
-
-L<DBD::AnyData>
+L<DBI>, L<POE>, L<POE::Wheel::Run>, L<POE::Component::DBIAgent>, L<POE::Component::LaDBI>,
+L<POE::Component::SimpleDBI>, L<DBD::AnyData>, L<DBD::SQLite>
 
 =head1 AUTHOR
 
@@ -1910,12 +1919,14 @@ David Davis E<lt>xantus@cpan.orgE<gt>
 
 =head1 CREDITS
 
-Apocalypse E<lt>apocal@cpan.orgE<gt>
-for POE::Component::SimpleDBI the basis of this PoCo
+Apocalypse E<lt>apocal@cpan.orgE<gt> for L<POE::Component::SimpleDBI>, and the
+alternate fork.
+
+Please rate this module. L<http://cpanratings.perl.org/rate/?distribution=POE-Component-EasyDBI>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2003-2004 by David Davis and Teknikill Software
+Copyright 2003-2005 by David Davis and Teknikill Software
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.

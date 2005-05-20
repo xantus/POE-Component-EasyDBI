@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.13 $))[1];
+our $VERSION = (qw($Revision: 0.14 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -25,10 +25,13 @@ sub new {
 
 # This is the subroutine that will get executed upon the fork() call by our parent
 sub main {
+	if ( $^O eq 'MSWin32' ) {
+		binmode(STDIN); binmode(STDOUT);
+	}
 	# Autoflush to avoid weirdness
-	select((select(STDOUT), $| = 1)[0]);
-	select(STDERR);
-	$|++;
+	#select((select(STDOUT), $| = 1)[0]);
+	select(STDOUT); $|++;
+	select(STDERR);	$|++;
 
 	my $self;
 	# check for alternate fork
@@ -809,7 +812,7 @@ sub db_hashhash {
 			try {
 				$sth->execute( @{ $data->{placeholders} } );
 			} catch Error with {
-				die $sth->errstr;
+				die (defined($sth->errstr)) ? $sth->errstr : $@;
 			};
 			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
 		}

@@ -4,7 +4,7 @@
 # vim: syntax=perl ts=4
 #########################
 
-use Test::More tests => 16;
+use Test::More tests => 15; # was 16
 #use Carp;
 #$SIG{__WARN__} = \&Carp::cluck;
 
@@ -15,10 +15,10 @@ BEGIN {
 };
 
 SKIP: {
-	eval "use DBD::AnyData";
+	eval "use DBD::SQLite";
 	my $have_anydata = ($@) ? 0 : 1;
-	skip "skipping DBD::AnyData tests due to DBD::AnyData and DBD::File being broken", 13;
-	skip "DBD::AnyData not installed", 12 unless $have_anydata;
+#	skip "skipping DBD::SQLite tests due to DBD::AnyData and DBD::File being broken", 13;
+	skip "DBD::SQLite not installed", 12 unless $have_anydata;
 
 	POE::Session->create(
 		inline_states => {
@@ -26,7 +26,7 @@ SKIP: {
 				$_[KERNEL]->alias_set('test');
 				POE::Component::EasyDBI->spawn(
 					alias => 'db',
-					dsn => 'dbi:AnyData(RaiseError=>1):',
+					dsn => 'dbi:SQLite:dbname=',
 					no_cache => 1, # don't use cached queries with DBD::AnyData
 					username => '',
 					password => '',
@@ -50,13 +50,9 @@ SKIP: {
 			},
 			connected => sub {
 				pass("connected"); # 5
-				$_[KERNEL]->post(db => func => {
-					args => [ 'test', 'CSV', ["id,foo,bar"], 'ad_import' ],
-					event => $_[SESSION]->postback('table_created'),
-				});
 				$_[KERNEL]->post(db => do => {
-					sql => 'CREATE TABLE test2 (id INT, foo TEXT, bar TEXT)',
-					event => '_no_event',
+					sql => 'CREATE TABLE test (id INT, foo TEXT, bar TEXT)',
+					event => $_[SESSION]->postback('table_created'),
 				});
 			},
 			table_created => sub {
@@ -66,6 +62,7 @@ SKIP: {
 					fail("create_in_memory_table");
 					return $_[KERNEL]->call($_[SESSION] => shutdown => 'NOW');
 				}
+				# TODO check if table exists?
 				pass("create_in_memory_table"); # 6
 				$_[KERNEL]->post(db => insert => {
 					table => 'test',
@@ -78,12 +75,16 @@ SKIP: {
 				
 				# old hash way, but still supported
 				$_[KERNEL]->post(db => insert => {
-					table => 'test2',
+					table => 'test',
 					hash => { id => 2, foo => 7891011, bar => time() },
 					event => 'hash',
 				});
 			},
 			hash => sub {
+				$_[ARG0]->{error} = "incorrect result:insert = $_[ARG0]->{result}"
+					unless (!ref($_[ARG0]->{result})
+					&& $_[ARG0]->{result} == 1
+					&& !defined($_[ARG0]->{error}));
 				if (defined($_[ARG0]->{error})) {
 					diag("$_[ARG0]->{error}");
 					fail("insert");
@@ -97,7 +98,7 @@ SKIP: {
 				});
 			},
 			array => sub {
-				$_[ARG0]->{error} = "incorrect result"
+				$_[ARG0]->{error} = "incorrect result:hash"
 					unless (ref($_[ARG0]->{result}) eq 'HASH'
 					&& $_[ARG0]->{result}->{foo} == 123456
 					&& !defined($_[ARG0]->{error}));
@@ -113,7 +114,7 @@ SKIP: {
 				});	
 			},
 			single => sub {
-				$_[ARG0]->{error} = "incorrect result"
+				$_[ARG0]->{error} = "incorrect result:array"
 					unless (ref($_[ARG0]->{result}) eq 'ARRAY'
 					&& !defined($_[ARG0]->{error}));
 									
@@ -129,7 +130,7 @@ SKIP: {
 					});
 			},
 			db_do => sub {
-				$_[ARG0]->{error} = "incorrect result"
+				$_[ARG0]->{error} = "incorrect result:single"
 					unless (defined($_[ARG0]->{result})
 					&& $_[ARG0]->{result} == 1
 					&& !defined($_[ARG0]->{error}));
@@ -149,9 +150,9 @@ SKIP: {
 			},
 			update => sub {
 				# should of updated 1 row
-				$_[ARG0]->{error} = "incorrect result"
+				$_[ARG0]->{error} = "incorrect result:do = $_[ARG0]->{result}"
 					unless (defined($_[ARG0]->{result})
-					&& $_[ARG0]->{result} == 1
+					&& $_[ARG0]->{result} == 2
 					&& !defined($_[ARG0]->{error}));
 				
 				if (defined($_[ARG0]->{error})) {
@@ -160,32 +161,32 @@ SKIP: {
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}
 				pass("do"); # 11
-				$_[KERNEL]->post(db => quote => {
-	#				method => 'quote',
-					sql => '\'blah"',
-	#				args => [ '\'blah"' ],
-					event => 'keyvalhash',
-				});
-			},
-			keyvalhash => sub {
-				$_[ARG0]->{error} = "incorrect result"
-					unless (defined($_[ARG0]->{result})
-					&& $_[ARG0]->{result} eq '\'\\\'blah"\''
-					&& !defined($_[ARG0]->{error}));
-				
-				if (defined($_[ARG0]->{error})) {
-					diag("$_[ARG0]->{error}");
-					fail("quote");
-					return $_[KERNEL]->call(test => shutdown => 'NOW');
-				}
-				pass("quote"); # 12
+#				$_[KERNEL]->post(db => quote => {
+#	#				method => 'quote',
+#					sql => '\'blah"',
+#	#				args => [ '\'blah"' ],
+#					event => 'keyvalhash',
+#				});
+#			},
+#			keyvalhash => sub {
+#				$_[ARG0]->{error} = "incorrect result:quote == $_[ARG0]->{result}"
+#					unless (defined($_[ARG0]->{result})
+#					&& $_[ARG0]->{result} eq '\'\\\'blah"\''
+#					&& !defined($_[ARG0]->{error}));
+#				
+#				if (defined($_[ARG0]->{error})) {
+#					diag("$_[ARG0]->{error}");
+#					fail("quote");
+#					return $_[KERNEL]->call(test => shutdown => 'NOW');
+#				}
+#				pass("quote"); # 12
 				$_[KERNEL]->post(db => keyvalhash => {
 					sql => 'SELECT id,bar FROM test',
 					event => 'hashhash',
 				});
 			},
 			hashhash => sub {
-				$_[ARG0]->{error} = "incorrect result"
+				$_[ARG0]->{error} = "incorrect result:keyvalhash"
 					unless (defined($_[ARG0]->{result})
 					&& ref($_[ARG0]->{result}) eq 'HASH'
 					&& $_[ARG0]->{result}->{2} eq '\'blah"'
@@ -204,7 +205,7 @@ SKIP: {
 				});
 			},
 			arrayhash => sub {
-				$_[ARG0]->{error} = "incorrect result"
+				$_[ARG0]->{error} = "incorrect result:hashhash"
 					unless (defined($_[ARG0]->{result})
 					&& ref($_[ARG0]->{result}) eq 'HASH'
 					&& $_[ARG0]->{result}->{2}->{bar} eq '\'blah"'
@@ -224,7 +225,7 @@ SKIP: {
 				});
 			},
 			arrayarray => sub {
-				$_[ARG0]->{error} = "incorrect result"
+				$_[ARG0]->{error} = "incorrect result:arrayhash"
 					unless (defined($_[ARG0]->{result})
 					&& ref($_[ARG0]->{result}) eq 'ARRAY'
 					&& !defined($_[ARG0]->{error}));
@@ -257,7 +258,7 @@ SKIP: {
 				});
 			},
 			done => sub {
-				$_[ARG0]->{error} = "incorrect result"
+				$_[ARG0]->{error} = "incorrect result:arrayarray"
 					unless (defined($_[ARG0]->{result})
 					&& ref($_[ARG0]->{result}) eq 'ARRAY'
 					&& !defined($_[ARG0]->{error}));

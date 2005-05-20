@@ -1,5 +1,9 @@
 Revision history for POE::Component::EasyDBI.
 
+0.14 Fri May 20 09:44:00 2005
+	- Chris Williams submitted a patch to get EasyDBI to work on MSWin32
+	- Added test using SQLite
+
 0.13 Tue Apr 26 10:30:00 2005
 	- added arrayarray, and a test for it, but tests are still disabled
 	
