@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.14 $))[1];
+our $VERSION = (qw($Revision: 0.15 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -54,7 +54,7 @@ sub main {
 		$self = __PACKAGE__->new(shift);
 		$self->{filter} = POE::Filter::Reference->new();
 	}
-
+	
 	$self->{lastpingtime} = time();
 
 	unless (defined($self->{sig_ignore_off})) {
@@ -94,6 +94,7 @@ sub main {
 		# $d->{id}				= SCALAR	->	THE QUERY ID ( FOR PARENT TO KEEP TRACK OF WHAT IS WHAT )
 		# $d->{primary_key}		= SCALAR 	->	PRIMARY KEY FOR A HASH OF HASHES
 		# $d->{last_insert_id}	= SCALAR|HASH	->	HASH REF OF TABLE AND FIELD OR SCALAR OF A QUERY TO RUN AFTER
+		# and others..
 
 		push(@{$self->{queue}},@$d);
 		# process all in the queue until a problem occurs or done
@@ -117,7 +118,8 @@ sub main {
 		$self->{dbh}->disconnect();
 		delete $self->{dbh};
 	}
-	# debug :)
+	
+	# debug
 #	require POE::API::Peek;
 #	my $p = POE::API::Peek->new();
 #	my @sessions = $p->session_list();
@@ -141,9 +143,10 @@ sub connect {
 
 			# We set some configuration stuff here
 			{
+				((ref($self->{options}) eq 'HASH') ? %{$self->{options}} : ()),
+				
 				# quiet!!
 				'PrintError'	=>	0,
-
 				'PrintWarn'		=>	0,
 
 				# Automatically raise errors so we can catch them with try/catch
@@ -151,7 +154,7 @@ sub connect {
 
 				# Disable the DBI tracing
 				'TraceLevel'	=>	0,
-			}
+			},
 		);
 
 		# Check for undefined-ness
@@ -171,6 +174,13 @@ sub connect {
 		$self->{done} = 1;
 		return 1;
 	}
+
+#	if ($self->{dsn} =~ m/SQLite/ && $self->{options}
+#		&& ref($self->{options}) eq 'HASH' && $self->{options}->{AutoCommit}) {
+#		# TODO error checking
+#		$self->db_do({ sql => 'BEGIN', id => -1 });
+#		delete $self->{output};
+#	}
 	
 	# send connect notice
 	$self->output({ id => 'DBI-CONNECTED' });
@@ -239,9 +249,8 @@ sub process {
 			$input->{sql} =~ s/^\s*//;
 		}
 		
-		if ( $input->{action} eq 'func' ) {
-			# Special command to support DBD::AnyData
-			$input->{method} = 'func';
+		if ( $input->{action} =~ m/^(func|commit|rollback|begin_work)$/ ) {
+			$input->{method} = $input->{action};
 			$self->do_method( $input );
 		} elsif ( $input->{action} eq 'method') {
 			# Special command to do $dbh->$method->()
@@ -286,6 +295,7 @@ sub process {
 			# Unrecognized action!
 			$self->{output} = $self->make_error( $input->{id}, "Unknown action sent '$input->{id}'" );
 		}
+		# XXX another way?
 		if ($input->{id} eq 'DBI' || ($self->{output}->{error}
 			&& ($self->{output}->{error} =~ m/no connection to the server/i
 			|| $self->{output}->{error} =~ m/server has gone away/i
@@ -300,6 +310,28 @@ sub process {
 		$self->output;
 	}
 	return 1;
+}
+
+sub commit {
+	my $self = shift;
+	my $id = shift->{id};
+	try {
+		$self->{dbh}->commit;
+	} catch Error with {
+		$self->{output} = $self->make_error( $id, shift );
+	};
+	return ($self->{output}) ? 0 : 1;
+}
+
+sub begin_work {
+	my $self = shift;
+	my $id = shift->{id};
+	try {
+		$self->{dbh}->begin_work;
+	} catch Error with {
+		$self->{output} = $self->make_error( $id, shift );
+	};
+	return ($self->{output}) ? 0 : 1;
 }
 
 # This subroutine makes a generic error structure
@@ -342,14 +374,26 @@ sub do_method {
 	my $method = $data->{method};
 	my $dbh = $self->{dbh};
 
-	# Catch any errors
-	try {
-		$result = $dbh->$method(@{$data->{args}});
-		
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift );
-	};
+	SWITCH: {
+	
+		if ($data->{begin_work}) {
+			$self->begin_work($data) or last SWITCH;
+		}
 
+		# Catch any errors
+		try {
+			if ($data->{args} && ref($data->{args}) eq 'ARRAY') {
+				$result = $dbh->$method(@{$data->{args}});
+			} else {
+				$result = $dbh->$method();
+			}
+			
+		} catch Error with {
+			$self->{output} = $self->make_error( $data->{id}, shift );
+		};
+		
+	}
+	
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
@@ -402,47 +446,52 @@ sub db_single {
 		return;
 	}
 
-	# Catch any errors
-	try {
-		# Make a new statement handler and prepare the query
-		if ($data->{no_cache}) {
-			$sth = $self->{dbh}->prepare( $data->{sql} );
-		} else {
-			# We use the prepare_cached method in hopes of hitting a cached one...
-			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+	SWITCH: {
+		if ($data->{begin_work}) {
+			$self->begin_work($data) or last SWITCH;
 		}
+		
+		# Catch any errors
+		try {
+			# Make a new statement handler and prepare the query
+			if ($data->{no_cache}) {
+				$sth = $self->{dbh}->prepare( $data->{sql} );
+			} else {
+				# We use the prepare_cached method in hopes of hitting a cached one...
+				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+			}
 
-		# Check for undef'ness
-		if (!defined($sth)) {
-			die 'Did not get a statement handler';
-		} else {
-			# Execute the query
+			# Check for undef'ness
+			if (!defined($sth)) {
+				die 'Did not get a statement handler';
+			} else {
+				# Execute the query
+				try {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch Error with {
+					die $sth->errstr;
+				};
+				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+			}
+	
+			# Actually do the query!
 			try {
-				$sth->execute( @{ $data->{placeholders} } );
+				# There are warnings when joining a NULL field, which is undef
+				no warnings;
+				if (exists($data->{seperator})) {
+					$result = join($data->{seperator},$sth->fetchrow_array());
+				} else {
+					$result = $sth->fetchrow_array();
+				}		
 			} catch Error with {
 				die $sth->errstr;
 			};
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-		}
-
-		# Actually do the query!
-		try {
-			# There are warnings when joining a NULL field, which is undef
-			no warnings;
-			if (exists($data->{seperator})) {
-				$result = join($data->{seperator},$sth->fetchrow_array());
-			} else {
-				$result = $sth->fetchrow_array();
-			}		
-			use warnings;
-		} catch Error with {
-			die $sth->errstr;
-		};
 		
-		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift );
-	};
+			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+		} catch Error with {
+			$self->{output} = $self->make_error( $data->{id}, shift );
+		};
+	}
 
 	# Check if we got any errors
 	if (!defined($self->{output})) {
@@ -510,6 +559,10 @@ sub db_insert {
 		$data->{placeholders} = $placeholders[$i];
 		my $do_last = 0;
 		
+		if ($data->{begin_work} && $i == 0) {
+			$self->begin_work($data) or last;
+		}
+		
 		# Catch any errors
 		try {
 			# Make a new statement handler and prepare the query
@@ -526,7 +579,7 @@ sub db_insert {
 			} else {
 				# Execute the query
 				try {
-					$rows_affected = $sth->execute( @{ $data->{placeholders} } );
+					$rows_affected += $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					if (defined($sth->errstr)) {
 						die $sth->errstr;
@@ -542,6 +595,10 @@ sub db_insert {
 			$do_last = 1; # can't use last here
 		};
 		last if ($do_last);
+	}
+
+	if ($data->{commit} && defined($rows_affected) && !defined($self->{output})) {
+		$self->commit($data);
 	}
 
 	# If rows_affected is not undef, that means we were successful
@@ -628,31 +685,43 @@ sub db_do {
 #		return;
 #	}
 
-	# Catch any errors
-	try {
-		# Make a new statement handler and prepare the query
-		if ($data->{no_cache}) {
-			$sth = $self->{dbh}->prepare( $data->{sql} );
-		} else {
-			# We use the prepare_cached method in hopes of hitting a cached one...
-			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+	SWITCH: {
+	
+		if ($data->{begin_work}) {
+			$self->begin_work($data) or last SWITCH;
 		}
+		
+		# Catch any errors
+		try {
+			# Make a new statement handler and prepare the query
+			if ($data->{no_cache}) {
+				$sth = $self->{dbh}->prepare( $data->{sql} );
+			} else {
+				# We use the prepare_cached method in hopes of hitting a cached one...
+				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+			}
+	
+			# Check for undef'ness
+			if (!defined($sth)) {
+				die 'Did not get a statement handler';
+			} else {
+				# Execute the query
+				try {
+					$rows_affected = $sth->execute( @{ $data->{placeholders} } );
+				} catch Error with {
+					die $sth->errstr;
+				};
+				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+			}
+		} catch Error with {
+			$self->{output} = $self->make_error( $data->{id}, shift );
+		};
 
-		# Check for undef'ness
-		if (!defined($sth)) {
-			die 'Did not get a statement handler';
-		} else {
-			# Execute the query
-			try {
-				$rows_affected = $sth->execute( @{ $data->{placeholders} } );
-			} catch Error with {
-				die $sth->errstr;
-			};
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-		}
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift );
-	};
+	}
+
+	if ($data->{commit} && defined($rows_affected) && !defined($self->{output})) {
+		$self->commit($data);
+	}
 
 	# If rows_affected is not undef, that means we were successful
 	if (defined($rows_affected) && !defined($self->{output})) {
@@ -689,74 +758,83 @@ sub db_arrayhash {
 		return;
 	}
 
-	# Catch any errors
-	try {
-		# Make a new statement handler and prepare the query
-		if ($data->{no_cache}) {
-			$sth = $self->{dbh}->prepare( $data->{sql} );
-		} else {
-			# We use the prepare_cached method in hopes of hitting a cached one...
-			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+	SWITCH: {
+
+		if ($data->{begin_work}) {
+			$self->begin_work($data) or last SWITCH;
 		}
-		
-		# Check for undef'ness
-		if (!defined($sth)) {
-			die 'Did not get a statement handler';
-		} else {
-			# Execute the query
+
+		# Catch any errors
+		try {
+			# Make a new statement handler and prepare the query
+			if ($data->{no_cache}) {
+				$sth = $self->{dbh}->prepare( $data->{sql} );
+			} else {
+				# We use the prepare_cached method in hopes of hitting a cached one...
+				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+			}
+			
+			# Check for undef'ness
+			if (!defined($sth)) {
+				die 'Did not get a statement handler';
+			} else {
+				# Execute the query
+				try {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch Error with {
+					die $sth->errstr;
+				};
+				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+			}
+	
+	#		my $newdata;
+	#
+	#		# Bind the columns
+	#		try {
+	#			$sth->bind_columns( \( @$newdata{ @{ $sth->{'NAME_lc'} } } ) );
+	#		} catch Error with {
+	#			die $sth->errstr;
+	#		};
+	
+			# Actually do the query!
 			try {
-				$sth->execute( @{ $data->{placeholders} } );
+				my $rows = 0;
+				while ( my $hash = $sth->fetchrow_hashref() ) {
+					if (exists($data->{chunked}) && defined($self->{output})) {
+						# chunk results ready to send
+						$self->output();
+						$result = [];
+						$rows = 0;
+					}
+					$rows++;
+					# Copy the data, and push it into the array
+					push( @{ $result }, { %{ $hash } } );
+					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
+						# Make output include the results
+						$self->{output} = { id => $data->{id}, result => $result, chunked => $data->{chunked} };
+					}
+				}
+				# in the case that our rows == chunk
+				$self->{output} = undef;
+	
 			} catch Error with {
 				die $sth->errstr;
 			};
+		
+			# XXX is dbh->err the same as sth->err?
 			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-		}
 
-#		my $newdata;
-#
-#		# Bind the columns
-#		try {
-#			$sth->bind_columns( \( @$newdata{ @{ $sth->{'NAME_lc'} } } ) );
-#		} catch Error with {
-#			die $sth->errstr;
-#		};
-
-		# Actually do the query!
-		try {
-			my $rows = 0;
-			while ( my $hash = $sth->fetchrow_hashref() ) {
-				if (exists($data->{chunked}) && defined($self->{output})) {
-					# chunk results ready to send
-					$self->output();
-					$result = [];
-					$rows = 0;
-				}
-				$rows++;
-				# Copy the data, and push it into the array
-				push( @{ $result }, { %{ $hash } } );
-				if (exists($data->{chunked}) && $data->{chunked} == $rows) {
-					# Make output include the results
-					$self->{output} = { id => $data->{id}, result => $result, chunked => $data->{chunked} };
-				}
+			# Check for any errors that might have terminated the loop early
+			if ( $sth->err() ) {
+				# Premature termination!
+				die $sth->errstr;
 			}
-			# in the case that our rows == chunk
-			$self->{output} = undef;
-
 		} catch Error with {
-			die $sth->errstr;
+			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
-		# XXX is dbh->err the same as sth->err?
-		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-
-		# Check for any errors that might have terminated the loop early
-		if ( $sth->err() ) {
-			# Premature termination!
-			die $sth->errstr;
-		}
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift );
-	};
-
+		
+	}
+	
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
@@ -794,97 +872,105 @@ sub db_hashhash {
 
 	my (@cols, %col);
 	
-	# Catch any errors
-	try {
-		# Make a new statement handler and prepare the query
-		if ($data->{no_cache}) {
-			$sth = $self->{dbh}->prepare( $data->{sql} );
-		} else {
-			# We use the prepare_cached method in hopes of hitting a cached one...
-			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
-		}
+	SWITCH: {
 
-		# Check for undef'ness
-		if (!defined($sth)) {
-			die 'Did not get a statement handler';
-		} else {
-			# Execute the query
-			try {
-				$sth->execute( @{ $data->{placeholders} } );
-			} catch Error with {
-				die (defined($sth->errstr)) ? $sth->errstr : $@;
-			};
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-		}
-
-		# The result hash
-		my $newdata = {};
-
-		# Check the primary key
-		my $foundprimary = 0;
-
-		# default to the first one
-		unless (defined($data->{primary_key})) {
-			$data->{primary_key} = 1;
-		}
-
-		if ($data->{primary_key} =~ m/^\d+$/) {
-			# primary_key can be a 1 based index
-			if ($data->{primary_key} > $sth->{NUM_OF_FIELDS}) {
-#				die "primary_key ($data->{primary_key}) is out of bounds (".$sth->{NUM_OF_FIELDS}.")";
-				die "primary_key ($data->{primary_key}) is out of bounds";
-			}
-			
-			$data->{primary_key} = $sth->{NAME}->[($data->{primary_key}-1)];
+		if ($data->{begin_work}) {
+			$self->begin_work($data) or last SWITCH;
 		}
 		
-		# Find the column names
-		for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
-			$col{$sth->{NAME}->[$i]} = $i;
-			push(@cols, $sth->{NAME}->[$i]);
-			$foundprimary = 1 if ($sth->{NAME}->[$i] eq $data->{primary_key});
-		}
-		
-		unless ($foundprimary == 1) {
-			die "primary key ($data->{primary_key}) not found";
-		}
-		
-		# Actually do the query!
+		# Catch any errors
 		try {
-			my $rows = 0;
-			while ( my @row = $sth->fetchrow_array() ) {
-				if (exists($data->{chunked}) && defined($self->{output})) {
-					# chunk results ready to send
-					$self->output();
-					$result = {};
-					$rows = 0;
-				}
-				$rows++;
-				foreach my $c (@cols) {
-					$result->{$row[$col{$data->{primary_key}}]}{$c} = $row[$col{$c}];
-				}
-				if (exists($data->{chunked}) && $data->{chunked} == $rows) {
-					# Make output include the results
-					$self->{output} = { result => $result, id => $data->{id}, cols => [ @cols ], chunked => $data->{chunked}, primary_key => $data->{primary_key} };
-				}
+			# Make a new statement handler and prepare the query
+			if ($data->{no_cache}) {
+				$sth = $self->{dbh}->prepare( $data->{sql} );
+			} else {
+				# We use the prepare_cached method in hopes of hitting a cached one...
+				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-			# in the case that our rows == chunk
-			$self->{output} = undef;
+	
+			# Check for undef'ness
+			if (!defined($sth)) {
+				die 'Did not get a statement handler';
+			} else {
+				# Execute the query
+				try {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch Error with {
+					die (defined($sth->errstr)) ? $sth->errstr : $@;
+				};
+				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+			}
+	
+			# The result hash
+			my $newdata = {};
+	
+			# Check the primary key
+			my $foundprimary = 0;
+	
+			# default to the first one
+			unless (defined($data->{primary_key})) {
+				$data->{primary_key} = 1;
+			}
+	
+			if ($data->{primary_key} =~ m/^\d+$/) {
+				# primary_key can be a 1 based index
+				if ($data->{primary_key} > $sth->{NUM_OF_FIELDS}) {
+	#				die "primary_key ($data->{primary_key}) is out of bounds (".$sth->{NUM_OF_FIELDS}.")";
+					die "primary_key ($data->{primary_key}) is out of bounds";
+				}
+				
+				$data->{primary_key} = $sth->{NAME}->[($data->{primary_key}-1)];
+			}
 			
+			# Find the column names
+			for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
+				$col{$sth->{NAME}->[$i]} = $i;
+				push(@cols, $sth->{NAME}->[$i]);
+				$foundprimary = 1 if ($sth->{NAME}->[$i] eq $data->{primary_key});
+			}
+			
+			unless ($foundprimary == 1) {
+				die "primary key ($data->{primary_key}) not found";
+			}
+			
+			# Actually do the query!
+			try {
+				my $rows = 0;
+				while ( my @row = $sth->fetchrow_array() ) {
+					if (exists($data->{chunked}) && defined($self->{output})) {
+						# chunk results ready to send
+						$self->output();
+						$result = {};
+						$rows = 0;
+					}
+					$rows++;
+					foreach my $c (@cols) {
+						$result->{$row[$col{$data->{primary_key}}]}{$c} = $row[$col{$c}];
+					}
+					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
+						# Make output include the results
+						$self->{output} = { result => $result, id => $data->{id}, cols => [ @cols ], chunked => $data->{chunked}, primary_key => $data->{primary_key} };
+					}
+				}
+				# in the case that our rows == chunk
+				$self->{output} = undef;
+				
+			} catch Error with {
+				die $sth->errstr;
+			};
+			
+			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+	
+			# Check for any errors that might have terminated the loop early
+			if ( $sth->err() ) {
+				# Premature termination!
+				die $sth->errstr;
+			}
 		} catch Error with {
-			die $sth->errstr;
+			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
 		
-		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-
-		# Check for any errors that might have terminated the loop early
-		if ( $sth->err() ) {
-			# Premature termination!
-			die $sth->errstr;
-		}
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift );
-	};
+	}
 
 	# Check if we got any errors
 	if (!defined($self->{output})) {
@@ -923,91 +1009,99 @@ sub db_hasharray {
 
 	my (@cols, %col);
 	
-	# Catch any errors
-	try {
-		# Make a new statement handler and prepare the query
-		if ($data->{no_cache}) {
-			$sth = $self->{dbh}->prepare( $data->{sql} );
-		} else {
-			# We use the prepare_cached method in hopes of hitting a cached one...
-			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
-		}
+	SWITCH: {
 
-		# Check for undef'ness
-		if (!defined($sth)) {
-			die 'Did not get a statement handler';
-		} else {
-			# Execute the query
+		if ($data->{begin_work}) {
+			$self->begin_work($data) or last SWITCH;
+		}
+		
+		# Catch any errors
+		try {
+			# Make a new statement handler and prepare the query
+			if ($data->{no_cache}) {
+				$sth = $self->{dbh}->prepare( $data->{sql} );
+			} else {
+				# We use the prepare_cached method in hopes of hitting a cached one...
+				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+			}
+	
+			# Check for undef'ness
+			if (!defined($sth)) {
+				die 'Did not get a statement handler';
+			} else {
+				# Execute the query
+				try {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch Error with {
+					die $sth->errstr;
+				};
+				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+			}
+
+			# The result hash
+			my $newdata = {};
+	
+			# Check the primary key
+			my $foundprimary = 0;
+
+			if ($data->{primary_key} =~ m/^\d+$/) {
+				# primary_key can be a 1 based index
+				if ($data->{primary_key} > $sth->{NUM_OF_FIELDS}) {
+#					die "primary_key ($data->{primary_key}) is out of bounds (".$sth->{NUM_OF_FIELDS}.")";
+					die "primary_key ($data->{primary_key}) is out of bounds";
+				}
+				
+				$data->{primary_key} = $sth->{NAME}->[($data->{primary_key}-1)];
+			}
+		
+			# Find the column names
+			for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
+				$col{$sth->{NAME}->[$i]} = $i;
+				push(@cols, $sth->{NAME}->[$i]);
+				$foundprimary = 1 if ($sth->{NAME}->[$i] eq $data->{primary_key});
+			}
+		
+			unless ($foundprimary == 1) {
+				die "primary key ($data->{primary_key}) not found";
+			}
+		
+			# Actually do the query!
 			try {
-				$sth->execute( @{ $data->{placeholders} } );
+				my $rows = 0;
+				while ( my @row = $sth->fetchrow_array() ) {
+					if (exists($data->{chunked}) && defined($self->{output})) {
+						# chunk results ready to send
+						$self->output();
+						$result = {};
+						$rows = 0;
+					}
+					$rows++;
+					push(@{ $result->{$row[$col{$data->{primary_key}}]} }, @row);
+					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
+						# Make output include the results
+						$self->{output} = { result => $result, id => $data->{id}, cols => [ @cols ], chunked => $data->{chunked}, primary_key => $data->{primary_key} };
+					}
+				}
+				# in the case that our rows == chunk
+				$self->{output} = undef;
+			
 			} catch Error with {
 				die $sth->errstr;
 			};
+		
 			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-		}
-
-		# The result hash
-		my $newdata = {};
-
-		# Check the primary key
-		my $foundprimary = 0;
-
-		if ($data->{primary_key} =~ m/^\d+$/) {
-			# primary_key can be a 1 based index
-			if ($data->{primary_key} > $sth->{NUM_OF_FIELDS}) {
-#				die "primary_key ($data->{primary_key}) is out of bounds (".$sth->{NUM_OF_FIELDS}.")";
-				die "primary_key ($data->{primary_key}) is out of bounds";
+	
+			# Check for any errors that might have terminated the loop early
+			if ( $sth->err() ) {
+				# Premature termination!
+				die $sth->errstr;
 			}
-			
-			$data->{primary_key} = $sth->{NAME}->[($data->{primary_key}-1)];
-		}
-		
-		# Find the column names
-		for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
-			$col{$sth->{NAME}->[$i]} = $i;
-			push(@cols, $sth->{NAME}->[$i]);
-			$foundprimary = 1 if ($sth->{NAME}->[$i] eq $data->{primary_key});
-		}
-		
-		unless ($foundprimary == 1) {
-			die "primary key ($data->{primary_key}) not found";
-		}
-		
-		# Actually do the query!
-		try {
-			my $rows = 0;
-			while ( my @row = $sth->fetchrow_array() ) {
-				if (exists($data->{chunked}) && defined($self->{output})) {
-					# chunk results ready to send
-					$self->output();
-					$result = {};
-					$rows = 0;
-				}
-				$rows++;
-				push(@{ $result->{$row[$col{$data->{primary_key}}]} }, @row);
-				if (exists($data->{chunked}) && $data->{chunked} == $rows) {
-					# Make output include the results
-					$self->{output} = { result => $result, id => $data->{id}, cols => [ @cols ], chunked => $data->{chunked}, primary_key => $data->{primary_key} };
-				}
-			}
-			# in the case that our rows == chunk
-			$self->{output} = undef;
-			
 		} catch Error with {
-			die $sth->errstr;
+			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
 		
-		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-
-		# Check for any errors that might have terminated the loop early
-		if ( $sth->err() ) {
-			# Premature termination!
-			die $sth->errstr;
-		}
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift );
-	};
-
+	}
+	
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
@@ -1043,75 +1137,83 @@ sub db_array {
 		return;
 	}
 
-	# Catch any errors
-	try {
-		# Make a new statement handler and prepare the query
-		if ($data->{no_cache}) {
-			$sth = $self->{dbh}->prepare( $data->{sql} );
-		} else {
-			# We use the prepare_cached method in hopes of hitting a cached one...
-			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
-		}
+	SWITCH: {
 
-		# Check for undef'ness
-		if (!defined($sth)) {
-			die 'Did not get a statement handler';
-		} else {
-			# Execute the query
-			try {
-				$sth->execute( @{ $data->{placeholders} } );
-			} catch Error with {
-				die $sth->errstr;
-			};
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+		if ($data->{begin_work}) {
+			$self->begin_work($data) or last SWITCH;
 		}
-
-		# The result hash
-		my $newdata = {};
 		
-		# Actually do the query!
+		# Catch any errors
 		try {
-			my $rows = 0;	
-			while ( my @row = $sth->fetchrow_array() ) {
-				if (exists($data->{chunked}) && defined($self->{output})) {
-					# chunk results ready to send
-					$self->output();
-					$result = [];
-					$rows = 0;
-				}
-				$rows++;
-				# There are warnings when joining a NULL field, which is undef
-				no warnings;
-				if (exists($data->{seperator})) {
-					push(@{$result},join($data->{seperator},@row));
-				} else {
-					push(@{$result},join(',',@row));
-				}
-				use warnings;
-				if (exists($data->{chunked}) && $data->{chunked} == $rows) {
-					# Make output include the results
-					$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };
-				}
+			# Make a new statement handler and prepare the query
+			if ($data->{no_cache}) {
+				$sth = $self->{dbh}->prepare( $data->{sql} );
+			} else {
+				# We use the prepare_cached method in hopes of hitting a cached one...
+				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-			# in the case that our rows == chunk
-			$self->{output} = undef;
+
+			# Check for undef'ness
+			if (!defined($sth)) {
+				die 'Did not get a statement handler';
+			} else {
+				# Execute the query
+				try {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch Error with {
+					die $sth->errstr;
+				};
+				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+			}
+	
+			# The result hash
+			my $newdata = {};
 			
+			# Actually do the query!
+			try {
+				my $rows = 0;	
+				while ( my @row = $sth->fetchrow_array() ) {
+					if (exists($data->{chunked}) && defined($self->{output})) {
+						# chunk results ready to send
+						$self->output();
+						$result = [];
+						$rows = 0;
+					}
+					$rows++;
+					# There are warnings when joining a NULL field, which is undef
+					no warnings;
+					if (exists($data->{seperator})) {
+						push(@{$result},join($data->{seperator},@row));
+					} else {
+						push(@{$result},join(',',@row));
+					}
+					use warnings;
+					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
+						# Make output include the results
+						$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };
+					}
+				}
+				# in the case that our rows == chunk
+				$self->{output} = undef;
+				
+			} catch Error with {
+				die $!;
+				#die $sth->errstr;
+			};
+			
+			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+	
+			# Check for any errors that might have terminated the loop early
+			if ( $sth->err() ) {
+				# Premature termination!
+				die $sth->errstr;
+			}
 		} catch Error with {
-			die $!;
-			#die $sth->errstr;
+			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
-		
-		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
 
-		# Check for any errors that might have terminated the loop early
-		if ( $sth->err() ) {
-			# Premature termination!
-			die $sth->errstr;
-		}
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift );
-	};
-
+	}
+	
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
@@ -1147,68 +1249,77 @@ sub db_arrayarray {
 		return;
 	}
 
-	# Catch any errors
-	try {
-		# Make a new statement handler and prepare the query
-		if ($data->{no_cache}) {
-			$sth = $self->{dbh}->prepare( $data->{sql} );
-		} else {
-			# We use the prepare_cached method in hopes of hitting a cached one...
-			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+	SWITCH: {
+
+		if ($data->{begin_work}) {
+			$self->begin_work($data) or last SWITCH;
 		}
 
-		# Check for undef'ness
-		if (!defined($sth)) {
-			die 'Did not get a statement handler';
-		} else {
-			# Execute the query
-			try {
-				$sth->execute( @{ $data->{placeholders} } );
-			} catch Error with {
-				die $sth->errstr;
-			};
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-		}
-
-		# The result hash
-		my $newdata = {};
-		
-		# Actually do the query!
+		# Catch any errors
 		try {
-			my $rows = 0;	
-			while ( my @row = $sth->fetchrow_array() ) {
-				if (exists($data->{chunked}) && defined($self->{output})) {
-					# chunk results ready to send
-					$self->output();
-					$result = [];
-					$rows = 0;
-				}
-				$rows++;
-				# There are warnings when joining a NULL field, which is undef
-				push(@{$result},\@row);
-				if (exists($data->{chunked}) && $data->{chunked} == $rows) {
-					# Make output include the results
-					$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };
-				}
+			# Make a new statement handler and prepare the query
+			if ($data->{no_cache}) {
+				$sth = $self->{dbh}->prepare( $data->{sql} );
+			} else {
+				# We use the prepare_cached method in hopes of hitting a cached one...
+				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-			# in the case that our rows == chunk
-			$self->{output} = undef;
+	
+			# Check for undef'ness
+			if (!defined($sth)) {
+				die 'Did not get a statement handler';
+			} else {
+				# Execute the query
+				try {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch Error with {
+					die $sth->errstr;
+				};
+				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+			}
+	
+			# The result hash
+			my $newdata = {};
 			
+			# Actually do the query!
+			try {
+				my $rows = 0;	
+				while ( my @row = $sth->fetchrow_array() ) {
+					if (exists($data->{chunked}) && defined($self->{output})) {
+						# chunk results ready to send
+						$self->output();
+						$result = [];
+						$rows = 0;
+					}
+					$rows++;
+					# There are warnings when joining a NULL field, which is undef
+					push(@{$result},\@row);
+					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
+						# Make output include the results
+						$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };
+					}
+				}
+				# in the case that our rows == chunk
+				$self->{output} = undef;
+				
+			} catch Error with {
+				die $!;
+				#die $sth->errstr;
+			};
+			
+			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+	
+			# Check for any errors that might have terminated the loop early
+			if ( $sth->err() ) {
+				# Premature termination!
+				die $sth->errstr;
+			}
 		} catch Error with {
-			die $!;
-			#die $sth->errstr;
+			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
 		
-		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-
-		# Check for any errors that might have terminated the loop early
-		if ( $sth->err() ) {
-			# Premature termination!
-			die $sth->errstr;
-		}
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift );
-	};
+	}
+	
 
 	# Check if we got any errors
 	if (!defined($self->{output})) {
@@ -1245,57 +1356,65 @@ sub db_hash {
 		return;
 	}
 
-	# Catch any errors
-	try {
-		# Make a new statement handler and prepare the query
-		if ($data->{no_cache}) {
-			$sth = $self->{dbh}->prepare( $data->{sql} );
-		} else {
-			# We use the prepare_cached method in hopes of hitting a cached one...
-			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+	SWITCH: {
+
+		if ($data->{begin_work}) {
+			$self->begin_work($data) or last SWITCH;
 		}
 
-		# Check for undef'ness
-		if (!defined($sth)) {
-			die 'Did not get a statement handler';
-		} else {
-			# Execute the query
+		# Catch any errors
+		try {
+			# Make a new statement handler and prepare the query
+			if ($data->{no_cache}) {
+				$sth = $self->{dbh}->prepare( $data->{sql} );
+			} else {
+				# We use the prepare_cached method in hopes of hitting a cached one...
+				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+			}
+	
+			# Check for undef'ness
+			if (!defined($sth)) {
+				die 'Did not get a statement handler';
+			} else {
+				# Execute the query
+				try {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch Error with {
+					die $sth->errstr;
+				};
+				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+			}
+	
+			# The result hash
+			my $newdata = {};
+			
+			# Actually do the query!
 			try {
-				$sth->execute( @{ $data->{placeholders} } );
+	
+				my @row = $sth->fetchrow_array();
+				
+				if (@row) {
+					for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
+						$result->{$sth->{NAME}->[$i]} = $row[$i];
+					}
+				}
+				
 			} catch Error with {
 				die $sth->errstr;
 			};
+			
 			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-		}
-
-		# The result hash
-		my $newdata = {};
-		
-		# Actually do the query!
-		try {
-
-			my @row = $sth->fetchrow_array();
-			
-			if (@row) {
-				for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
-					$result->{$sth->{NAME}->[$i]} = $row[$i];
-				}
+	
+			# Check for any errors that might have terminated the loop early
+			if ( $sth->err() ) {
+				# Premature termination!
+				die $sth->errstr;
 			}
-			
 		} catch Error with {
-			die $sth->errstr;
+			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
 		
-		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-
-		# Check for any errors that might have terminated the loop early
-		if ( $sth->err() ) {
-			# Premature termination!
-			die $sth->errstr;
-		}
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift );
-	};
+	}
 
 	# Check if we got any errors
 	if (!defined($self->{output})) {
@@ -1328,66 +1447,74 @@ sub db_keyvalhash {
 		return;
 	}
 
-	# Catch any errors
-	try {
-		# Make a new statement handler and prepare the query
-		if ($data->{no_cache}) {
-			$sth = $self->{dbh}->prepare( $data->{sql} );
-		} else {
-			# We use the prepare_cached method in hopes of hitting a cached one...
-			$sth = $self->{dbh}->prepare_cached( $data->{sql} );
-		}
+	SWITCH: {
 
-		# Check for undef'ness
-		if (!defined($sth)) {
-			die 'Did not get a statement handler';
-		} else {
-			# Execute the query
+		if ($data->{begin_work}) {
+			$self->begin_work($data) or last SWITCH;
+		}
+		
+		# Catch any errors
+		try {
+			# Make a new statement handler and prepare the query
+			if ($data->{no_cache}) {
+				$sth = $self->{dbh}->prepare( $data->{sql} );
+			} else {
+				# We use the prepare_cached method in hopes of hitting a cached one...
+				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
+			}
+	
+			# Check for undef'ness
+			if (!defined($sth)) {
+				die 'Did not get a statement handler';
+			} else {
+				# Execute the query
+				try {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch Error with {
+					die $sth->errstr;
+				};
+				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+			}
+	
+			# Actually do the query!
 			try {
-				$sth->execute( @{ $data->{placeholders} } );
+				my $rows = 0;
+				while (my @row = $sth->fetchrow_array()) {
+					if ($#row < 1) {
+						die 'You need at least 2 columns selected for a keyvalhash query';
+					}
+					if (exists($data->{chunked}) && defined($self->{output})) {
+						# chunk results ready to send
+						$self->output();
+						$result = {};
+						$rows = 0;
+					}
+					$rows++;
+					$result->{$row[0]} = $row[1];
+					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
+						# Make output include the results
+						$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };
+					}
+				}
+				# in the case that our rows == chunk
+				$self->{output} = undef;
+				
 			} catch Error with {
 				die $sth->errstr;
 			};
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
-		}
-
-		# Actually do the query!
-		try {
-			my $rows = 0;
-			while (my @row = $sth->fetchrow_array()) {
-				if ($#row < 1) {
-					die 'You need at least 2 columns selected for a keyvalhash query';
-				}
-				if (exists($data->{chunked}) && defined($self->{output})) {
-					# chunk results ready to send
-					$self->output();
-					$result = {};
-					$rows = 0;
-				}
-				$rows++;
-				$result->{$row[0]} = $row[1];
-				if (exists($data->{chunked}) && $data->{chunked} == $rows) {
-					# Make output include the results
-					$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };
-				}
-			}
-			# in the case that our rows == chunk
-			$self->{output} = undef;
 			
+			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+	
+			# Check for any errors that might have terminated the loop early
+			if ( $sth->err() ) {
+				# Premature termination!
+				die $sth->errstr;
+			}
 		} catch Error with {
-			die $sth->errstr;
+			$self->{output} = $self->make_error( $data->{id}, shift);
 		};
-		
-		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
 
-		# Check for any errors that might have terminated the loop early
-		if ( $sth->err() ) {
-			# Premature termination!
-			die $sth->errstr;
-		}
-	} catch Error with {
-		$self->{output} = $self->make_error( $data->{id}, shift);
-	};
+	}
 
 	# Check if we got any errors
 	if (!defined($self->{output})) {

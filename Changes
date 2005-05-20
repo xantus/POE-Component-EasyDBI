@@ -1,5 +1,10 @@
 Revision history for POE::Component::EasyDBI.
 
+0.15 Fri May 20 15:06:00 2005
+	- added commit/begin_work/rollback actions
+	- added tests for commit and begin_work (needs improved tests)
+	- added commit/begin_work post and pre events to actions
+
 0.14 Fri May 20 09:44:00 2005
 	- Chris Williams submitted a patch to get EasyDBI to work on MSWin32
 	- Added test using SQLite

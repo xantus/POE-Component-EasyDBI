@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 0.14 $))[1];
+our $VERSION = (qw($Revision: 0.15 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -59,6 +59,7 @@ sub spawn {
 		dsn
 		username
 		password
+		options
 		alias
 		max_retries
 		ping_timeout
@@ -139,6 +140,13 @@ sub spawn {
 			delete $opt{connected};
 		}
 	}
+
+	if (exists($opt{options})) {
+		unless (ref($opt{options}) eq 'HASH') {
+			warn('options must be a hash ref, ignoring');
+			delete $opt{options};
+		}
+	}
 	
 	my $keep = {};
 	foreach (@valid) {
@@ -169,6 +177,9 @@ sub spawn {
 
 			# database events
 			(map { lc($_) => \&db_handler, uc($_) => \&db_handler } qw(
+				commit
+				rollback
+				begin_work
 				func
 				method
 				insert
@@ -219,6 +230,9 @@ sub spawn {
 
 			# extra params for actions
 			action_params => {
+				commit => [],
+				rollback => [],
+				begin_work => [],
 				func => [qw( args )],
 				method => [qw( function args )],
 				single => [qw( seperator )],
@@ -325,24 +339,22 @@ sub db_handler {
 
 	if (!exists($args->{event})) {
 		# Nothing much we can do except drop this quietly...
-		warn "Did not receive an event argument from caller ".$_[SESSION]->ID
-			." -> State: " . $_[STATE] . " Args: " . %$args;
+		warn "Did not receive an event argument from caller ".$_[SENDER]->ID
+			."  State: " . $_[STATE] . " Args: " . %$args;
 		return;
 	} else {
 		my $a = ref($args->{event});
 		unless (!ref($a) || $a =~ m/postback/i || $a =~ m/callback/i) {
 			warn "Received an malformed event argument from caller"
 				." (only postbacks, callbacks and scalar allowed) "
-				.$_[SESSION]->ID." -> State: " . $_[STATE] . " Event: $args->{event}"
+				.$_[SENDER]->ID." -> State: " . $_[STATE] . " Event: $args->{event}"
 				." Args: " . %$args;
 			return;
 		}
 	}
 
 	if (!defined($args->{sql})) {
-		unless ($args->{action} =~ m/insert/i 
-			|| $args->{action} eq 'func' || $args->{action} eq 'method') {
-
+		unless ($args->{action} =~ m/^(insert|func|method|commit|rollback|begin_work)$/i) {
 			$args->{error} = 'sql is not defined!';
 			# Okay, send the error to the Failure Event
 			$kernel->post($args->{session}, $args->{event}, $args);
@@ -472,7 +484,7 @@ sub send_query {
 	$kernel->call($_[SESSION], 'check_queue');
 }
 
-# This subroutine does the meat - sends queries to the subprocess
+# This subroutine is the meat - sends queries to the subprocess
 sub check_queue {
 	my ($kernel, $heap) = @_[KERNEL,HEAP];
 	
@@ -482,7 +494,7 @@ sub check_queue {
 		if (scalar(@{ $heap->{queue} }) > 0) {
 			# Copy what we need from the top of the queue
 			my %queue;
-			foreach (qw( id sql action placeholders no_cache)) {
+			foreach (qw( id sql action placeholders no_cache begin_work commit )) {
 				next unless (defined($heap->{queue}->[0]->{$_}));
 				$queue{$_} = $heap->{queue}->[0]->{$_};
 			}
@@ -665,7 +677,7 @@ sub child_error {
 	DEBUG && do {
 		# Copied from POE::Wheel::Run manpage
 		my ($operation, $errnum, $errstr) = @_[ARG0 .. ARG2];
-		warn "POE::Component::EasyDBI got an $operation error $errnum: $errstr\n";
+		warn "POE::Component::EasyDBI got an $operation error $errnum from Subprocess: '$errstr' shutdown: $heap->{shutdown}\n";
 	};
 	
 	if ($heap->{shutdown}) {
@@ -775,7 +787,7 @@ sub child_STDOUT {
 	}
 	
 	if (!ref($query->{event})) {
-		DEBUG && print "calling event $query->{event} in session $query->{session} ".$_[SESSION]->ID."\n";
+		DEBUG && print "calling event $query->{event} in session $query->{session} from our session ".$_[SESSION]->ID."\n";
 		$kernel->post($query->{session}, $query->{event}, $query_copy);
 	} else {
 		DEBUG && print "calling callback\n";
@@ -853,9 +865,12 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 	# Set up the DBI
 	POE::Component::EasyDBI->spawn( # or new(), witch returns an obj
 		alias		=> 'EasyDBI',
-		dsn		=> 'DBI:mysql:database=foobaz;host=192.168.1.100;port=3306',
+		dsn			=> 'DBI:mysql:database=foobaz;host=192.168.1.100;port=3306',
 		username	=> 'user',
 		password	=> 'pass',
+		options		=> {
+			AutoCommit => 0,
+		},
 	);
 
 	# Create our own session to communicate with EasyDBI
@@ -880,6 +895,7 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 						],
 					},
 				);
+				$_[KERNEL]->post( 'EasyDBI' => 'commit' );
 				$_[KERNEL]->post( 'EasyDBI' => 'shutdown' );
 			},
 		},
@@ -975,6 +991,11 @@ This is the DB username EasyDBI will use when making the call to connect
 =item C<password>
 
 This is the DB password EasyDBI will use when making the call to connect
+
+=item C<options>
+
+Pass a hash ref that normally would be after the $password param on a 
+DBI->connect call.
 
 =item C<max_retries>
 
@@ -1444,18 +1465,83 @@ or
 
 =item C<func>
 
-	This is for calling $dbh->func(), available when using DBD::AnyData
+	This is for calling $dbh->func(), when using a driver that supports it.  
 	
 	Internally, it does this:
 
-	$result = $dbh->func(@{$args});
-	return $result;
+	return $dbh->func(@{$args});
 
-	Here's an example on how to trigger this event:
+	Here's an example on how to trigger this event (Using DBD::AnyData):
 
 	$kernel->post( 'EasyDBI',
 		func => {
 			args => ['test2','CSV',["id,phrase\n1,foo\n2,bar"],'ad_import'],
+			event => 'result_handler',
+		}
+	);
+
+	The Success Event handler will get a hash in ARG0:
+	{
+		sql				=>	SQL sent
+		result			=>  return value
+	}
+
+=item C<commit>
+
+	This is for calling $dbh->commit(), if the driver supports it.
+	
+	Internally, it does this:
+
+	return $dbh->commit();
+
+	Here's an example on how to trigger this event:
+
+	$kernel->post( 'EasyDBI',
+		commit => {
+			event => 'result_handler',
+		}
+	);
+
+	The Success Event handler will get a hash in ARG0:
+	{
+		sql				=>	SQL sent
+		result			=>  return value
+	}
+
+=item C<rollback>
+
+	This is for calling $dbh->rollback(), if the driver supports it.
+	
+	Internally, it does this:
+
+	return $dbh->rollback();
+
+	Here's an example on how to trigger this event:
+
+	$kernel->post( 'EasyDBI',
+		rollback => {
+			event => 'result_handler',
+		}
+	);
+
+	The Success Event handler will get a hash in ARG0:
+	{
+		sql				=>	SQL sent
+		result			=>  return value
+	}
+
+=item C<begin_work>
+
+	This is for calling $dbh->begin_work(), if the driver supports it.
+	
+	Internally, it does this:
+
+	return $dbh->begin_work();
+
+	Here's an example on how to trigger this event:
+
+	$kernel->post( 'EasyDBI',
+		begin_work => {
 			event => 'result_handler',
 		}
 	);
@@ -1557,6 +1643,16 @@ chunk of data from the query
 =item C<last_insert_id>
 
 See the insert event for a example of its use.
+
+=item C<begin_work>
+
+Optional.  Works with all queries.  You should have AutoCommit => 0 set on
+connect.
+
+=item C<commit>
+
+Optional.  After a successful 'do' or 'insert', a commit is performed.
+ONLY used when using C<do> or C<insert>
 
 =item (arbitrary data)
 

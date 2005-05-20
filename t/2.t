@@ -4,7 +4,7 @@
 # vim: syntax=perl ts=4
 #########################
 
-use Test::More tests => 15; # was 16
+use Test::More tests => 16; # was 17
 #use Carp;
 #$SIG{__WARN__} = \&Carp::cluck;
 
@@ -21,6 +21,7 @@ SKIP: {
 	skip "DBD::SQLite not installed", 12 unless $have_anydata;
 
 	POE::Session->create(
+#		options => { trace => 1},
 		inline_states => {
 			_start => sub {
 				$_[KERNEL]->alias_set('test');
@@ -51,7 +52,9 @@ SKIP: {
 			connected => sub {
 				pass("connected"); # 5
 				$_[KERNEL]->post(db => do => {
+					begin_work => 1,
 					sql => 'CREATE TABLE test (id INT, foo TEXT, bar TEXT)',
+					commit => 1,
 					event => $_[SESSION]->postback('table_created'),
 				});
 			},
@@ -65,6 +68,7 @@ SKIP: {
 				# TODO check if table exists?
 				pass("create_in_memory_table"); # 6
 				$_[KERNEL]->post(db => insert => {
+#					begin_work => 1,
 					table => 'test',
 					insert => [
 						{ id => 1, foo => 123456, bar => 'a quick brown fox' },
@@ -78,6 +82,7 @@ SKIP: {
 					table => 'test',
 					hash => { id => 2, foo => 7891011, bar => time() },
 					event => 'hash',
+#					commit => 1,
 				});
 			},
 			hash => sub {
@@ -142,25 +147,37 @@ SKIP: {
 				}
 				pass("single"); # 10
 				$_[KERNEL]->post(db => do => {
+					begin_work => 1,
 					sql => 'UPDATE test SET bar=? WHERE id=?',
 					placeholders => [ '\'blah"', 2 ],
-					# using a session id here is messing up
+					# using a session id here is messing up?
 					event => 'update',
 				});
 			},
 			update => sub {
-				# should of updated 1 row
-				$_[ARG0]->{error} = "incorrect result:do = $_[ARG0]->{result}"
+				# should of updated 2 rows
+				$_[ARG0]->{error} = "incorrect result:do = $_[0]->{result}"
 					unless (defined($_[ARG0]->{result})
 					&& $_[ARG0]->{result} == 2
 					&& !defined($_[ARG0]->{error}));
-				
+			
 				if (defined($_[ARG0]->{error})) {
 					diag("$_[ARG0]->{error}");
 					fail("do");
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}
 				pass("do"); # 11
+				$_[KERNEL]->post(db => commit => {
+					event => 'commit',
+				});
+			},
+			commit => sub {
+				if (defined($_[ARG0]->{error})) {
+					diag("$_[ARG0]->{error}");
+					fail("commit");
+					return $_[KERNEL]->call(test => shutdown => 'NOW');
+				}
+				pass("commit"); # 12
 #				$_[KERNEL]->post(db => quote => {
 #	#				method => 'quote',
 #					sql => '\'blah"',
@@ -272,8 +289,9 @@ SKIP: {
 			},
 			shutdown => sub {
 				$_[KERNEL]->alarm_remove_all();
-				$_[KERNEL]->call(db => 'shutdown' => $_[ARG0]);
 				$_[KERNEL]->alias_remove();
+				$_[KERNEL]->call(db => 'shutdown' => $_[ARG0]);
+				return;
 			},
 		},
 	);
