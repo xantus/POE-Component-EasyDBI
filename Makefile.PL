@@ -7,7 +7,7 @@ WriteMakefile(
     'NAME'			=> 'POE::Component::EasyDBI',
     'VERSION_FROM'	=> 'lib/POE/Component/EasyDBI.pm', # finds $VERSION
     'PREREQ_PM'		=> {
-		'POE'		=>	'0.20',
+		'POE'		=>	(($^O eq 'MSWin32') ? '0.3101' : '0.20'),
 		'DBI'		=>	'1.38',
 		'Error'		=>	'0.15',
 		'Carp'		=>	'0',

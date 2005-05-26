@@ -1,5 +1,9 @@
 Revision history for POE::Component::EasyDBI.
 
+0.16 Thu May 26 14:38:00 2005
+	- fixed t/2.t, test skipped 12 intead of 13 if SQLite wasn't installed
+	- added prereq for POE .3101 if MSWin3
+
 0.15 Fri May 20 15:06:00 2005
 	- added commit/begin_work/rollback actions
 	- added tests for commit and begin_work (needs improved tests)
