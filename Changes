@@ -1,5 +1,9 @@
 Revision history for POE::Component::EasyDBI.
 
+1.02 Thu Jun 30 2005
+	- added stopwatch option
+	- added contrib to MANIFEST so make dist picks it up
+
 1.01 Thu Jun 30 2005
 	- fixed alias_remove stupidness
 

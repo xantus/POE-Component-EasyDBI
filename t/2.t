@@ -24,6 +24,7 @@ SKIP: {
 		inline_states => {
 			_start => sub {
 				$_[KERNEL]->alias_set('test');
+				eval "use Time::Stopwatch";
 				POE::Component::EasyDBI->spawn(
 					alias => 'db',
 					dsn => 'dbi:SQLite:dbname=',
@@ -33,6 +34,7 @@ SKIP: {
 					connected => [ $_[SESSION]->ID, 'connected' ],
 					connect_error => [ $_[SESSION]->ID, 'error' ],
 #					alt_fork => 1,
+					stopwatch => ($@) ? 0 : 1,
 				);
 				pass("component_started"); # 4
 				# shouldnt take more than 30 seconds to finish
@@ -94,6 +96,7 @@ SKIP: {
 					fail("insert");
 					return $_[KERNEL]->call($_[SESSION] => shutdown => 'NOW');
 				}
+				diag("Query took $_[ARG0]->{stopwatch} seconds to complete") if (exists($_[ARG0]->{stopwatch}));
 				pass("insert"); # 7
 				$_[KERNEL]->post(db => hash => {
 					sql => 'SELECT * FROM test WHERE id=?',

@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.01 $))[1];
+our $VERSION = (qw($Revision: 1.02 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -72,6 +72,7 @@ sub new {
 		sig_ignore_off
 		no_cache
 		alt_fork
+		stopwatch
 	);
 	
 	# check the DSN
@@ -145,6 +146,14 @@ sub new {
 		unless (ref($opt{options}) eq 'HASH') {
 			warn('options must be a hash ref, ignoring');
 			delete $opt{options};
+		}
+	}
+
+	if ($opt{stopwatch}) {
+		eval "use Time::Stopwatch";
+		if ($@) {
+			warn('cannot use stopwatch (ignored), Time::Stopwatch not installed? ');
+			delete $opt{stopwatch};
 		}
 	}
 	
@@ -465,6 +474,10 @@ sub db_handler {
 #			}
 		}
 		return;
+	}
+
+	if ($heap->{opts}{stopwatch}) {
+		tie $args->{stopwatch}, 'Time::Stopwatch';
 	}
 
 	# Increment the refcount for the session that is sending us this query
@@ -1067,6 +1080,12 @@ using L<DBD::AnyData>.  This can be overridden with each query.
 Optional. If true, an alternate type of fork will be used for the database
 process.  This usually results in lower memory use of the child.
 *Experimental, and WILL NOT work on Windows Platforms*
+
+=item C<stopwatch>
+
+Optional. If true, L<Time::Stopwatch> will be loaded and tied to the 'stopwatch'
+key on every query.  Check the stopwatch key in the return event to measure how
+long a query took.
 
 =back
 

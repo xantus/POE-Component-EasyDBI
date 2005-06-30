@@ -175,6 +175,11 @@ DESCRIPTION
         database process. This usually results in lower memory use of the
         child. *Experimental, and WILL NOT work on Windows Platforms*
 
+    "stopwatch"
+        Optional. If true, Time::Stopwatch will be loaded and tied to the
+        'stopwatch' key on every query. Check the stopwatch key in the
+        return event to measure how long a query took.
+
   Events
     There is only a few events you can trigger in EasyDBI. They all share a
     common argument format, except for the shutdown event.
