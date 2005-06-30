@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.00 $))[1];
+our $VERSION = (qw($Revision: 1.01 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -55,6 +55,8 @@ sub main {
 		$self->{filter} = POE::Filter::Reference->new();
 	}
 	
+	$self->{0} = $0 = "$0 ".__PACKAGE__;
+	
 	$self->{lastpingtime} = time();
 
 	unless (defined($self->{sig_ignore_off})) {
@@ -68,6 +70,8 @@ sub main {
 #	}
 
 	while (!$self->connect()) {	}
+	
+	$self->pt("connected at ".localtime());
 
 	return if ($self->{done});
 
@@ -75,6 +79,7 @@ sub main {
 	$self->process();
 
 	if ($self->{done}) {
+		$self->pt("disconnected at ".localtime());
 		if ($self->{dbh}) {
 			$self->{dbh}->disconnect();
 		}
@@ -86,6 +91,7 @@ sub main {
 		# Feed the line into the filter
 		# and put the data in the queue
 		my $d = $self->{filter}->get( [ $buffer ] );
+		push(@{$self->{queue}},@$d) if ($d);
 		
 		# INPUT STRUCTURE IS:
 		# $d->{action}			= SCALAR	->	WHAT WE SHOULD DO
@@ -96,7 +102,6 @@ sub main {
 		# $d->{last_insert_id}	= SCALAR|HASH	->	HASH REF OF TABLE AND FIELD OR SCALAR OF A QUERY TO RUN AFTER
 		# and others..
 
-		push(@{$self->{queue}},@$d);
 		# process all in the queue until a problem occurs or done
 		REDO:
 		unless ($self->process()) {
@@ -127,6 +132,10 @@ sub main {
 #	open(FH,">db.txt");
 #	print FH Data::Dumper->Dump([\@sessions]);
 #	close(FH);
+}
+
+sub pt {
+	$0 = shift->{0}.' '.shift;
 }
 
 sub connect {
@@ -196,6 +205,7 @@ sub process {
 	# Process each data structure
 	foreach my $input (shift(@{$self->{queue}})) {
 		$input->{action} = lc($input->{action});
+		
 		# Now, we do the actual work depending on what kind of query it was
 		if ($input->{action} eq 'exit') {
 			# Disconnect!
@@ -219,6 +229,7 @@ sub process {
 #			}
 			if ($needping) {
 				if (eval{ $self->{dbh}->ping(); }) {
+					$self->pt("pinged at ".localtime());
 					$self->{lastpingtime} = $now;
 				} else {
 					# put the query back on the stack

@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.00 $))[1];
+our $VERSION = (qw($Revision: 1.01 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -25,17 +25,17 @@ sub DEBUG () { 0 }
 # So, reselect it after selecting STDOUT and setting Autoflush
 #select((select(STDOUT), $| = 1)[0]);
 
-sub new {
-	my $s = &spawn;
-	return bless({ ID => $s->ID },$_[0]);
+sub spawn {
+	my ($self,$session) = &new;
+	return $session;
 }
 
 sub create {
 	&spawn;
 }
 
-sub spawn {
-	shift; # class
+sub new {
+	my $class = shift;
 
 	# The options hash
 	my %opt;
@@ -158,47 +158,51 @@ sub spawn {
 		croak('Unrecognized keys/options ('.join(',',(keys %opt))
 			.') were present in new() call to POE::Component::EasyDBI!');
 	}
+	
+	my $self = bless($keep,$class);
 
 	# Create a new session for ourself
-	POE::Session->create(
+	my $session = POE::Session->create(
 		# Our subroutines
-		'inline_states'	=>	{
-			# Maintenance events
-			'_start'		=>	\&start,
-			'_stop'			=>	\&stop,
-			'setup_wheel'	=>	\&setup_wheel,
-			'shutdown'		=>	\&shutdown_poco,
-
-			# child events
-			'child_error'	=>	\&child_error,
-			'child_closed'	=>	\&child_closed,
-			'child_STDOUT'	=>	\&child_STDOUT,
-			'child_STDERR'	=>	\&child_STDERR,
-
-			# database events
-			(map { lc($_) => \&db_handler, uc($_) => \&db_handler } qw(
-				commit
-				rollback
-				begin_work
-				func
-				method
-				insert
-				do
-				single
-				quote
-				arrayhash
-				hashhash
-				hasharray
-				array
-				arrayarray
-				hash
-				keyvalhash
-			)),
+		'object_states'	=>	[
+			$self => {
+				# Maintenance events
+				'_start'		=>	'start',
+				'_stop'			=>	'stop',
+				'setup_wheel'	=>	'setup_wheel',
+				'shutdown'		=>	'shutdown_poco',
+	
+				# child events
+				'child_error'	=>	'child_error',
+				'child_closed'	=>	'child_closed',
+				'child_STDOUT'	=>	'child_STDOUT',
+				'child_STDERR'	=>	'child_STDERR',
+	
+				# database events
+				(map { lc($_) => 'db_handler', uc($_) => 'db_handler' } qw(
+					commit
+					rollback
+					begin_work
+					func
+					method
+					insert
+					do
+					single
+					quote
+					arrayhash
+					hashhash
+					hasharray
+					array
+					arrayarray
+					hash
+					keyvalhash
+				)),
 			
-			# Queue handling
-			'send_query'	=>	\&send_query,
-			'check_queue'	=>	\&check_queue,
-		},
+				# Queue handling
+				'send_query'	=>	'send_query',
+				'check_queue'	=>	'check_queue',
+			},
+		],
 
 		# Set up the heap for ourself
 		'heap'	=>	{
@@ -246,6 +250,11 @@ sub spawn {
 			},
 		},
 	) or die 'Unable to create a new session!';
+
+	# save the session id
+	$self->{ID} = $session->ID;
+	
+	return wantarray ? $self : ($self,$session);
 }
 
 # This subroutine handles shutdown signals
@@ -266,7 +275,7 @@ sub shutdown_poco {
 		}
 	} else {
 		# Remove our alias so we can be properly terminated
-		$kernel->alias_remove() if ($heap->{alias} ne '');
+		$kernel->alias_remove($heap->{alias}) if ($heap->{alias} ne '');
 	}
 
 	# Check if we got "NOW"
@@ -321,7 +330,7 @@ sub db_handler {
 	# Get the arguments
 	my $args;
 	if (ref($_[ARG0]) eq 'HASH') {
-		$args = { %{ $_[ARG0] } };
+		$args = $_[ARG0];
 	} else {
 		warn "first parameter must be a ref hash, trying to adjust. "
 			."(fix this to get rid of this message)";
@@ -463,6 +472,8 @@ sub db_handler {
 
 	# Okay, fire off this query!
 	$kernel->yield('send_query', $args);
+	
+	return;
 }
 
 # This subroutine starts the process of sending a query
@@ -478,10 +489,12 @@ sub send_query {
 	$args->{id} = $heap->{idcounter}++;
 
 	# Add this query to the queue
-	push(@{ $heap->{queue} }, { %{ $args } });
+	push(@{ $heap->{queue} }, $args);
 
 	# Send the query!
 	$kernel->call($_[SESSION], 'check_queue');
+	
+	return;
 }
 
 # This subroutine is the meat - sends queries to the subprocess
@@ -489,31 +502,32 @@ sub check_queue {
 	my ($kernel, $heap) = @_[KERNEL,HEAP];
 	
 	# Check if the subprocess is currently active
-	if (!$heap->{active}) {
-		# Check if we have a query in the queue
-		if (scalar(@{ $heap->{queue} }) > 0) {
-			# Copy what we need from the top of the queue
-			my %queue;
-			foreach (qw( id sql action placeholders no_cache begin_work commit )) {
-				next unless (defined($heap->{queue}->[0]->{$_}));
-				$queue{$_} = $heap->{queue}->[0]->{$_};
-			}
-			
-			foreach (@{$heap->{action_params}->{$queue{action}}}) {
-				next unless (defined($heap->{queue}->[0]->{$_}));
-				$queue{$_} = $heap->{queue}->[0]->{$_};
-			}
+	return unless (!$heap->{active});
 
-			# Send data only if we are not shutting down...
-			if ($heap->{shutdown} != 2) {
-				# Set the child to 'active'
-				$heap->{active} = 1;
-		
-				# Put it in the wheel
-				$heap->{wheel}->put(\%queue);
-			}
-		}
+	# Check if we have a query in the queue
+	return unless (scalar(@{ $heap->{queue} }) > 0);
+	# shutting down?
+	return unless ($heap->{shutdown} != 2);
+	
+	# Copy what we need from the top of the queue
+	my %queue;
+	foreach (
+		qw( id sql action placeholders no_cache begin_work commit )
+		,@{$heap->{action_params}->{$heap->{queue}->[0]->{action}}}
+	) {
+
+		next unless (defined($heap->{queue}->[0]->{$_}));
+		$queue{$_} = $heap->{queue}->[0]->{$_};
 	}
+
+	# Send data only if we are not shutting down...
+	# Set the child to 'active'
+	$heap->{active} = 1;
+
+	# Put it in the wheel
+	$heap->{wheel}->put(\%queue);
+
+	return;
 }
 
 # This starts the EasyDBI
@@ -605,6 +619,8 @@ sub setup_wheel {
 		# Check for queries
 		$kernel->call($_[SESSION], 'check_queue');
 	}
+	
+	return;
 }
 
 # Stops everything we have
@@ -667,6 +683,8 @@ sub child_closed {
 	# Create the wheel again
 	delete $heap->{wheel};
 	$kernel->call($_[SESSION], 'setup_wheel');
+	
+	return;
 }
 
 # Handles child error
@@ -699,33 +717,34 @@ sub child_STDOUT {
 		return;
 	}
 
-	DEBUG && do {
-		require Data::Dumper;
-		print Data::Dumper->Dump([$data,$heap->{queue}[0]]);
-	};
+
+#	DEBUG && do {
+#		require Data::Dumper;
+#		print Data::Dumper->Dump([$data,$heap->{queue}[0]]);
+#	};
 
 	# Check for special DB messages with ID of 'DBI'
 	if ($data->{id} eq 'DBI') {
 		# Okay, we received a DBI error -> error in connection...
 
 		if ($heap->{no_connect_failures}) {
-			my $query_copy = {};
+			my $qc = {};
 			if (defined($heap->{queue}->[0])) {
-				$query_copy = { %{ $heap->{queue}[0] } };
+				$qc = $heap->{queue}[0];
 			}
-			$query_copy->{error} = $data->{error};
+			$qc->{error} = $data->{error};
 			if (ref($heap->{opts}{connect_error})) {
-				$kernel->post(@{$heap->{opts}{connect_error}}, $query_copy);
-			} elsif ($query_copy->{session} && $query_copy->{event}) {
-				if (!ref($query_copy)) {
-					$kernel->post($query_copy->{session}, $query_copy->{event}, $query_copy);
+				$kernel->post(@{$heap->{opts}{connect_error}}, $qc);
+			} elsif ($qc->{session} && $qc->{event}) {
+				if (!ref($qc)) {
+					$kernel->post($qc->{session}, $qc->{event}, $qc);
 				} else {
-					my $callback = delete $query_copy->{event};
+					my $callback = delete $qc->{event};
 #					if (ref($callback) eq 'CODE') {
-#						$_[ARG0] = $query_copy;
+#						$_[ARG0] = $qc;
 #						$callback->(@_);
 #					} else {
-						$callback->($query_copy);
+						$callback->($qc);
 #					}
 				}
 			} else {
@@ -747,7 +766,7 @@ sub child_STDOUT {
 		if (ref($heap->{opts}{connected})) {
 			my $query_copy = {};
 			if (defined($heap->{queue}->[0])) {
-				$query_copy = { %{ $heap->{queue}[0] } };
+				$query_copy = $heap->{queue}[0];
 			}
 			$kernel->post(@{$heap->{opts}{connected}}, $query_copy);
 		}
@@ -759,11 +778,12 @@ sub child_STDOUT {
 	
 	if (exists($data->{chunked})) {
 		# Get the query from the queue
-		$query = $heap->{queue}->[0];
 		if (exists($data->{last_chunk})) {
 			# last chunk, delete it out of the queue
-			shift(@{ $heap->{queue} });
+			$query = shift(@{ $heap->{queue} });
 			$refcount_decrement = 1;
+		} else {
+			$query = { %{ $heap->{queue}->[0] } };
 		}
 	} else {
 		# Check to see if the ID matches with the top of the queue
@@ -771,7 +791,6 @@ sub child_STDOUT {
 			die "Internal error in queue/child consistency! ( CHILD: $data->{id} "
 			."QUEUE: $heap->{queue}->[0]->{id} )";
 		}
-		
 		# Get the query from the top of the queue
 		$query = shift(@{ $heap->{queue} });
 		$refcount_decrement = 1;
@@ -782,21 +801,25 @@ sub child_STDOUT {
 	my $query_copy = { %{ $query } };
 	
 	# marry data from the child to the data from the queue
-	foreach my $k (keys %$data) {
-		$query_copy->{$k} = $data->{$k};
-	}
+	%$query_copy = (%$query_copy, %$data);
 	
-	if (!ref($query->{event})) {
-		DEBUG && print "calling event $query->{event} in session $query->{session} from our session ".$_[SESSION]->ID."\n";
-		$kernel->post($query->{session}, $query->{event}, $query_copy);
+	#undef $query;
+	#foreach my $k (keys %$data) {
+	#	$query_copy->{$k} = $data->{$k};
+	#}
+	
+	if (!ref($query_copy->{event})) {
+		#DEBUG && print "calling event $query->{event} in session $query->{session} from our session ".$_[SESSION]->ID."\n";
+		$kernel->post($query_copy->{session} => $query_copy->{event} => $query_copy);
 	} else {
 		DEBUG && print "calling callback\n";
 		my $callback = delete $query_copy->{event};
 #		if (ref($callback) eq 'CODE') {
 #			$_[ARG0] = $query_copy;
-#			$callback->(@_);
+			$callback->(@_);
+			undef $callback;
 #		} else {
-			$callback->($query_copy);
+#			$callback->($query_copy);
 #		}
 	}
 
@@ -809,6 +832,7 @@ sub child_STDOUT {
 		$kernel->call($_[SESSION], 'check_queue');
 	}
 
+	return;
 }
 
 # Handles child STDERR output
@@ -1010,7 +1034,7 @@ database will be pinged before every query.  The default is 0.
 =item C<no_connect_failures>
 
 Optional. If set to a true value, the connect_error event will be valid, but not
-nessary.  If set to a false value, then connection errors will be fatal.
+necessary.  If set to a false value, then connection errors will be fatal.
 
 =item C<connect_error>
 

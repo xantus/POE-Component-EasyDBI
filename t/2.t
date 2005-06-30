@@ -288,7 +288,7 @@ SKIP: {
 			},
 			shutdown => sub {
 				$_[KERNEL]->alarm_remove_all();
-				$_[KERNEL]->alias_remove();
+				$_[KERNEL]->alias_remove('test');
 				$_[KERNEL]->call(db => 'shutdown' => $_[ARG0]);
 				return;
 			},

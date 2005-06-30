@@ -31,6 +31,11 @@ This module requires these other modules and libraries:
 
 	Error > 0.15
 
+Optional:
+
+	SQLite
+		(for tests)
+
 AUTHOR
 
 David Davis <xantus@cpan.org>

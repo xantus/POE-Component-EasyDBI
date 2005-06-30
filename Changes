@@ -1,30 +1,33 @@
 Revision history for POE::Component::EasyDBI.
 
-0.16 Thu May 26 14:38:00 2005
+1.01 Thu Jun 30 2005
+	- fixed alias_remove stupidness
+
+1.00 Thu May 26 2005
 	- fixed t/2.t, test skipped 12 intead of 13 if SQLite wasn't installed
 	- added prereq for POE .3101 if MSWin3
 
-0.15 Fri May 20 15:06:00 2005
+0.15 Fri May 20 2005
 	- added commit/begin_work/rollback actions
 	- added tests for commit and begin_work (needs improved tests)
 	- added commit/begin_work post and pre events to actions
 
-0.14 Fri May 20 09:44:00 2005
+0.14 Fri May 20 2005
 	- Chris Williams submitted a patch to get EasyDBI to work on MSWin32
 	- Added test using SQLite
 
-0.13 Tue Apr 26 10:30:00 2005
+0.13 Tue Apr 26 2005
 	- added arrayarray, and a test for it, but tests are still disabled
 	
-0.12 Sun Apr 24 18:33:00 2005
+0.12 Sun Apr 24 2005
 	- fixed alt_fork param, v.11 was unreleased anyway
 
-0.11 Sun Apr 24 18:20:00 2005
+0.11 Sun Apr 24 2005
 	- added option alt_fork that runs the database connection in a 
 		seperate process but not forked. Thanks Apocalypse
 	- fixed version in Subprocess.pm
 
-0.10 Wed Mar 16 15:21:00 2005
+0.10 Wed Mar 16 2005
 	- moved select(STDERR) stuff to main() in subprocess.pm, oops :)
 	- added object methods, new() returns an object
 	- disabled DBD::AnyData tests because DBD::File is broken
@@ -32,11 +35,11 @@ Revision history for POE::Component::EasyDBI.
 	- documented arbitrary data passing
 	
 
-0.09 Wed Dec 22 09:04:00 2004
+0.09 Wed Dec 22 2004
 	- fixed bug in error checking on inserts
 	- documeted max_retries => -1
 
-0.08 Mon Nov 15 10:14:00 2004
+0.08 Mon Nov 15 2004
 	- added func and method to subprocess
 	- fixed the variables that were suppose to be passed to the subprocess
 	- added documentation for func
@@ -50,17 +53,17 @@ Revision history for POE::Component::EasyDBI.
 	- moved docs around and improved them
 	- added extra tests if DBD::AnyData is installed
 
-0.07 Tue Oct 19 15:39:00 2004
+0.07 Tue Oct 19 2004
 	- added signal ignores for INT HUP TERM into subprocess
 		now a ctrl-c (int) can be handled correctly by a script
 		using easydbi
 
-0.06 Tue Oct 19 11:05:00 2004
+0.06 Tue Oct 19 2004
 	- fixed typo of connect_error event
 	- added connected parameter
 	- added an oracle error check to subprocess
 
-0.05 Tue Oct 19 00:25:00 2004
+0.05 Tue Oct 19 2004
 	- added create method, it just calls new
 	- added insert query type
 	- bumped up the DBI required version to 1.38
@@ -69,15 +72,15 @@ Revision history for POE::Component::EasyDBI.
 	- added several options for reconnecting
 	- objectized the subprocess, it's more efficient
 
-0.04 Thu Sep 23 11:25:00 2004
+0.04 Thu Sep 23 2004
 	- added ability to specify session id
 
-0.03 Mon Jan 02 10:07:00 2004
+0.03 Mon Jan 02 2004
 	- 'bout time I fixed that bug that came from using SimpleDBI as my base :)
 
-0.02 Mon Nov 24 12:00:00 2003
+0.02 Mon Nov 24 2003
 	- Fixed docs, README and Changes
 
-0.01 Mon Nov 24 10:40:00 2003
+0.01 Mon Nov 24 2003
 	- First work based off SimpleDBI, but with easier to more data structures
 	and query chunks, and documented each query type
