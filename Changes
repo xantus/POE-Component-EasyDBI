@@ -1,5 +1,8 @@
 Revision history for POE::Component::EasyDBI.
 
+1.03 Tue Aug 02 2005
+	- fixed minor bug with 'connected' option, thanks Jason Lavold
+
 1.02 Thu Jun 30 2005
 	- added stopwatch option
 	- added contrib to MANIFEST so make dist picks it up

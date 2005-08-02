@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.02 $))[1];
+our $VERSION = (qw($Revision: 1.03 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -130,7 +130,7 @@ sub new {
 	# check for connect event
 	if (exists($opt{connected})) {
 		if (ref($opt{connected}) eq 'ARRAY') {
-			unless ($#{$opt{connect_error}} > 0) {
+			unless ($#{$opt{connected}} > 0) {
 				warn('connected must be an array reference that contains '
 				.'at least a session and event, ignoring');
 				delete $opt{connected};
