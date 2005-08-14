@@ -1,5 +1,8 @@
 Revision history for POE::Component::EasyDBI.
 
+1.04 Sat Aug 13 2005
+	- fixed misuse of wantarray, I had it backwards. Duh!
+
 1.03 Tue Aug 02 2005
 	- fixed minor bug with 'connected' option, thanks Jason Lavold
 

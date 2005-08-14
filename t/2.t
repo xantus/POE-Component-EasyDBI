@@ -56,7 +56,8 @@ SKIP: {
 					begin_work => 1,
 					sql => 'CREATE TABLE test (id INT, foo TEXT, bar TEXT)',
 					commit => 1,
-					event => $_[SESSION]->postback('table_created'),
+					#event => $_[SESSION]->postback('table_created'),
+					event => 'table_created',
 				});
 			},
 			table_created => sub {

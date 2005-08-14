@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.03 $))[1];
+our $VERSION = (qw($Revision: 1.04 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -263,7 +263,7 @@ sub new {
 	# save the session id
 	$self->{ID} = $session->ID;
 	
-	return wantarray ? $self : ($self,$session);
+	return wantarray ? ($self,$session) : $self;
 }
 
 # This subroutine handles shutdown signals
@@ -519,6 +519,7 @@ sub check_queue {
 
 	# Check if we have a query in the queue
 	return unless (scalar(@{ $heap->{queue} }) > 0);
+	
 	# shutting down?
 	return unless ($heap->{shutdown} != 2);
 	
@@ -552,6 +553,8 @@ sub start {
 
 	# Create the wheel
 	$kernel->yield('setup_wheel');
+	
+	return;
 }
 
 # This sets up the WHEEL
@@ -779,7 +782,7 @@ sub child_STDOUT {
 		if (ref($heap->{opts}{connected})) {
 			my $query_copy = {};
 			if (defined($heap->{queue}->[0])) {
-				$query_copy = $heap->{queue}[0];
+				$query_copy = { %{$heap->{queue}[0]} };
 			}
 			$kernel->post(@{$heap->{opts}{connected}}, $query_copy);
 		}
@@ -796,7 +799,7 @@ sub child_STDOUT {
 			$query = shift(@{ $heap->{queue} });
 			$refcount_decrement = 1;
 		} else {
-			$query = { %{ $heap->{queue}->[0] } };
+			$query = $heap->{queue}->[0];
 		}
 	} else {
 		# Check to see if the ID matches with the top of the queue
@@ -811,33 +814,44 @@ sub child_STDOUT {
 
 	# copy the query data, so we don't clobber the
 	# stored data when using chunks
-	my $query_copy = { %{ $query } };
+	#my $query_copy = { %{ $query } };
 	
 	# marry data from the child to the data from the queue
-	%$query_copy = (%$query_copy, %$data);
+	#%$query_copy = (%$query_copy, %$data);
+	
+#	my $query_copy = { (%$query, %$data) };
+	
+#	my $query_copy = $query;
+#	foreach (keys %$data) { $query_copy->{$_} = $data->{$_}; }
+
+	my $query_copy = { %$query, %$data };
+
+	my ($ses,$evt) = ("$query_copy->{session}", "$query_copy->{event}");
+	
+	$kernel->call($ses => $evt => $query_copy);
 	
 	#undef $query;
 	#foreach my $k (keys %$data) {
 	#	$query_copy->{$k} = $data->{$k};
 	#}
 	
-	if (!ref($query_copy->{event})) {
-		#DEBUG && print "calling event $query->{event} in session $query->{session} from our session ".$_[SESSION]->ID."\n";
-		$kernel->post($query_copy->{session} => $query_copy->{event} => $query_copy);
-	} else {
-		DEBUG && print "calling callback\n";
-		my $callback = delete $query_copy->{event};
-#		if (ref($callback) eq 'CODE') {
-#			$_[ARG0] = $query_copy;
-			$callback->(@_);
-			undef $callback;
-#		} else {
-#			$callback->($query_copy);
-#		}
-	}
+#	if (!ref($query_copy->{event})) {
+#		#DEBUG && print "calling event $query->{event} in session $query->{session} from our session ".$_[SESSION]->ID."\n";
+#		$kernel->call($query_copy->{session} => $query_copy->{event} => $query_copy);
+#	} else {
+#		DEBUG && print "calling callback\n";
+#		my $callback = delete $query_copy->{event};
+##		if (ref($callback) eq 'CODE') {
+##			$_[ARG0] = $query_copy;
+#			$callback->(@_);
+#			undef $callback;
+##		} else {
+##			$callback->($query_copy);
+##		}
+#	}
 
 	# Decrement the refcount for the session that sent us a query
-	if ($refcount_decrement == 1) {
+	if ($refcount_decrement) {
 		$heap->{active} = 0;
 		$kernel->refcount_decrement($query->{session}, 'EasyDBI');
 
