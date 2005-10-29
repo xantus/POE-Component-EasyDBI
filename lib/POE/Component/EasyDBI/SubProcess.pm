@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.04 $))[1];
+our $VERSION = (qw($Revision: 1.05 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -452,10 +452,10 @@ sub db_single {
 	my $result = undef;
 
 	# Check if this is a non-select statement
-	if ( $data->{sql} !~ /^SELECT/i ) {
-		$self->{output} = $self->make_error( $data->{id}, "SINGLE is for SELECT queries only! ( $data->{sql} )" );
-		return;
-	}
+#	if ( $data->{sql} !~ /^SELECT/i ) {
+#		$self->{output} = $self->make_error( $data->{id}, "SINGLE is for SELECT queries only! ( $data->{sql} )" );
+#		return;
+#	}
 
 	SWITCH: {
 		if ($data->{begin_work}) {
@@ -764,10 +764,10 @@ sub db_arrayhash {
 	my $result = [];
 
 	# Check if this is a non-select statement
-	if ( $data->{sql} !~ /^SELECT/i ) {
-		$self->{output} = $self->make_error( $data->{id}, "ARRAYHASH is for SELECT queries only! ( $data->{sql} )" );
-		return;
-	}
+#	if ( $data->{sql} !~ /^SELECT/i ) {
+#		$self->{output} = $self->make_error( $data->{id}, "ARRAYHASH is for SELECT queries only! ( $data->{sql} )" );
+#		return;
+#	}
 
 	SWITCH: {
 
@@ -876,10 +876,10 @@ sub db_hashhash {
 	my $result = {};
 
 	# Check if this is a non-select statement
-	if ( $data->{sql} !~ /^SELECT/i ) {
-		$self->{output} = $self->make_error( $data->{id}, "HASHHASH is for SELECT queries only! ( $data->{sql} )" );
-		return;
-	}
+#	if ( $data->{sql} !~ /^SELECT/i ) {
+#		$self->{output} = $self->make_error( $data->{id}, "HASHHASH is for SELECT queries only! ( $data->{sql} )" );
+#		return;
+#	}
 
 	my (@cols, %col);
 	
@@ -1013,10 +1013,10 @@ sub db_hasharray {
 	my $result = {};
 
 	# Check if this is a non-select statement
-	if ( $data->{sql} !~ /^SELECT/i ) {
-		$self->{output} = $self->make_error( $data->{id}, "HASHARRAY is for SELECT queries only! ( $data->{sql} )" );
-		return;
-	}
+#	if ( $data->{sql} !~ /^SELECT/i ) {
+#		$self->{output} = $self->make_error( $data->{id}, "HASHARRAY is for SELECT queries only! ( $data->{sql} )" );
+#		return;
+#	}
 
 	my (@cols, %col);
 	
@@ -1143,10 +1143,10 @@ sub db_array {
 	my $result = [];
 
 	# Check if this is a non-select statement
-	if ( $data->{sql} !~ /^SELECT/i ) {
-		$self->{output} = $self->make_error( $data->{id}, "ARRAY is for SELECT queries only! ( $data->{sql} )" );
-		return;
-	}
+#	if ( $data->{sql} !~ /^SELECT/i ) {
+#		$self->{output} = $self->make_error( $data->{id}, "ARRAY is for SELECT queries only! ( $data->{sql} )" );
+#		return;
+#	}
 
 	SWITCH: {
 
@@ -1255,10 +1255,10 @@ sub db_arrayarray {
 	my $result = [];
 
 	# Check if this is a non-select statement
-	if ( $data->{sql} !~ /^SELECT/i ) {
-		$self->{output} = $self->make_error( $data->{id}, "ARRAYARRAY is for SELECT queries only! ( $data->{sql} )" );
-		return;
-	}
+#	if ( $data->{sql} !~ /^SELECT/i ) {
+#		$self->{output} = $self->make_error( $data->{id}, "ARRAYARRAY is for SELECT queries only! ( $data->{sql} )" );
+#		return;
+#	}
 
 	SWITCH: {
 
@@ -1362,10 +1362,10 @@ sub db_hash {
 	my $result = {};
 
 	# Check if this is a non-select statement
-	if ( $data->{sql} !~ /^SELECT/i ) {
-		$self->{output} = $self->make_error( $data->{id}, "HASH is for SELECT queries only! ( $data->{sql} )" );
-		return;
-	}
+#	if ( $data->{sql} !~ /^SELECT/i ) {
+#		$self->{output} = $self->make_error( $data->{id}, "HASH is for SELECT queries only! ( $data->{sql} )" );
+#		return;
+#	}
 
 	SWITCH: {
 
@@ -1453,10 +1453,10 @@ sub db_keyvalhash {
 	my $result = {};
 
 	# Check if this is a non-select statement
-	if ( $data->{sql} !~ /^SELECT/i ) {
-		$self->{output} = $self->make_error( $data->{id}, "KEYVALHASH is for SELECT queries only! ( $data->{sql} )" );
-		return;
-	}
+#	if ( $data->{sql} !~ /^SELECT/i ) {
+#		$self->{output} = $self->make_error( $data->{id}, "KEYVALHASH is for SELECT queries only! ( $data->{sql} )" );
+#		return;
+#	}
 
 	SWITCH: {
 

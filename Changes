@@ -1,5 +1,8 @@
 Revision history for POE::Component::EasyDBI.
 
+1.05 Sat Oct 29 2005
+	- removed SELECT checking so queries like SHOW TABLES will work
+
 1.04 Sat Aug 13 2005
 	- fixed misuse of wantarray, I had it backwards. Duh!
 
