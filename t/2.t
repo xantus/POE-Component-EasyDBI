@@ -289,10 +289,11 @@ SKIP: {
 				}
 				pass('arrayarray'); # 16
 				$_[KERNEL]->post(db => do => {
-					sql => 'DELETE FROM test',
+					sql => 'UPDATE test SET id=0',
 					event => sub {
                         #warn $_[0]->{rows};
 				        pass('eventcode'); # 17
+				        diag("Query affected ".$_[0]->{rows}." rows");
                         $poe_kernel->post(test => 'shutdown');
                     },
 				});
@@ -300,7 +301,6 @@ SKIP: {
 			shutdown => sub {
 				$_[KERNEL]->alarm_remove_all();
 				$_[KERNEL]->alias_remove('test');
-				$_[KERNEL]->sig('CHLD');
                 $_[KERNEL]->call(db => 'shutdown' => $_[ARG0]);
 				return;
 			},

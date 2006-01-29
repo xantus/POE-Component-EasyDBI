@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.07 $))[1];
+our $VERSION = (qw($Revision: 1.08 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -1253,6 +1253,7 @@ or
     {
         sql             =>  SQL sent
         result          =>  Array of hashes of the rows ( array of fetchrow_hashref's )
+        rows            =>  Scalar value of rows
         placeholders    =>  Original placeholders
         cols            =>  An array of the cols in query order
     }
@@ -1302,6 +1303,7 @@ or
     {
         sql             =>  SQL sent
         result          =>  Hashes of hashes of the rows
+        rows            =>  Scalar value of rows
         placeholders    =>  Original placeholders
         cols            =>  An array of the cols in query order
     }
@@ -1348,6 +1350,7 @@ or
     {
         sql             =>  SQL sent
         result          =>  Hashes of hashes of the rows
+        rows            =>  Scalar value of rows
         placeholders    =>  Original placeholders
         primary_key     =>  'this' # the column name for the number passed in
         cols            =>  An array of the cols in query order
@@ -1387,6 +1390,7 @@ or
         sql             =>  SQL sent
         result          =>  Array of scalars (joined with seperator if more
             than one column is returned)
+        rows            =>  Scalar value of rows
         placeholders    =>  Original placeholders
     }
 
@@ -1418,6 +1422,7 @@ or
     {
         sql             =>  SQL sent
         result          =>  Array of array refs
+        rows            =>  Scalar value of rows
         placeholders    =>  Original placeholders
     }
 
@@ -1453,6 +1458,7 @@ or
     {
         sql             =>  SQL sent
         result          =>  Hash
+        rows            =>  Scalar value of rows
         placeholders    =>  Original placeholders
     }
 
@@ -1485,6 +1491,7 @@ or
     {
         sql             =>  SQL sent
         result          =>  Hash
+        rows            =>  Scalar value of rows
         placeholders    =>  Original placeholders
     }
 

@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.07 $))[1];
+our $VERSION = (qw($Revision: 1.08 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -534,7 +534,7 @@ sub db_insert {
 
 	# Variables we use
 	my $sth = undef;
-	my $rows_affected = undef;
+	my $rows = undef;
 
 	my @queries;
 	my @placeholders;
@@ -595,7 +595,7 @@ sub db_insert {
 				# Execute the query
 				try {
                     $self->bind($sth, $data->{placeholders});
-					$rows_affected += $sth->execute();
+					$rows += $sth->execute();
 				} catch Error with {
 					if (defined($sth->errstr)) {
 						die $sth->errstr;
@@ -613,14 +613,14 @@ sub db_insert {
 		last if ($do_last);
 	}
 
-	if ($data->{commit} && defined($rows_affected) && !defined($self->{output})) {
+	if ($data->{commit} && defined($rows) && !defined($self->{output})) {
 		$self->commit($data);
 	}
 
-	# If rows_affected is not undef, that means we were successful
-	if (defined($rows_affected) && !defined($self->{output})) {
+	# If rows is not undef, that means we were successful
+	if (defined($rows) && !defined($self->{output})) {
 		# Make the data structure
-		$self->{output} = { rows => $rows_affected, result => $rows_affected, id => $data->{id} };
+		$self->{output} = { rows => $rows, result => $rows, id => $data->{id} };
 		
 		unless ($data->{last_insert_id}) {
 			if (defined($sth)) {
@@ -669,7 +669,7 @@ sub db_insert {
 			# special case, insert was ok, but last_insert_id errored
 			$self->{output}->{error} = shift;
 		};
-	} elsif (!defined($rows_affected) && !defined($self->{output})) {
+	} elsif (!defined($rows) && !defined($self->{output})) {
 		# Internal error...
 		$self->{output} = $self->make_error( $data->{id}, 'Internal Error in db_do of EasyDBI Subprocess' );
 		#die 'Internal Error in db_do';
@@ -693,7 +693,7 @@ sub db_do {
 
 	# Variables we use
 	my $sth = undef;
-	my $rows_affected = undef;
+	my $rows = undef;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} =~ /^SELECT/i ) {
@@ -724,7 +724,7 @@ sub db_do {
 				# Execute the query
 				try {
                     $self->bind($sth, $data->{placeholders});
-					$rows_affected += $sth->execute();
+					$rows += $sth->execute();
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
@@ -736,15 +736,15 @@ sub db_do {
 
 	}
 
-	if ($data->{commit} && defined($rows_affected) && !defined($self->{output})) {
+	if ($data->{commit} && defined($rows) && !defined($self->{output})) {
 		$self->commit($data);
 	}
 
-	# If rows_affected is not undef, that means we were successful
-	if (defined($rows_affected) && !defined($self->{output})) {
+	# If rows is not undef, that means we were successful
+	if (defined($rows) && !defined($self->{output})) {
 		# Make the data structure
-		$self->{output} = { rows => $rows_affected, result => $rows_affected, id => $data->{id} };
-	} elsif (!defined($rows_affected) && !defined($self->{output})) {
+		$self->{output} = { rows => $rows, result => $rows, id => $data->{id} };
+	} elsif (!defined($rows) && !defined($self->{output})) {
 		# Internal error...
 		$self->{output} = $self->make_error( $data->{id}, 'Internal Error in db_do of EasyDBI Subprocess' );
 		#die 'Internal Error in db_do';
@@ -768,6 +768,7 @@ sub db_arrayhash {
 	# Variables we use
 	my $sth = undef;
 	my $result = [];
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -816,7 +817,6 @@ sub db_arrayhash {
 	
 			# Actually do the query!
 			try {
-				my $rows = 0;
 				while ( my $hash = $sth->fetchrow_hashref() ) {
 					if (exists($data->{chunked}) && defined($self->{output})) {
 						# chunk results ready to send
@@ -829,7 +829,7 @@ sub db_arrayhash {
 					push( @{ $result }, { %{ $hash } } );
 					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
 						# Make output include the results
-						$self->{output} = { id => $data->{id}, result => $result, chunked => $data->{chunked} };
+						$self->{output} = { rows => $rows, id => $data->{id}, result => $result, chunked => $data->{chunked} };
 					}
 				}
 				# in the case that our rows == chunk
@@ -856,7 +856,7 @@ sub db_arrayhash {
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
-		$self->{output} = { id => $data->{id}, result => $result };
+		$self->{output} = { rows => $rows, id => $data->{id}, result => $result };
 		if (exists($data->{chunked})) {
 			$self->{output}->{last_chunk} = 1;
 			$self->{output}->{chunked} = $data->{chunked};
@@ -881,6 +881,7 @@ sub db_hashhash {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
+    my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -954,7 +955,6 @@ sub db_hashhash {
 			
 			# Actually do the query!
 			try {
-				my $rows = 0;
 				while ( my @row = $sth->fetchrow_array() ) {
 					if (exists($data->{chunked}) && defined($self->{output})) {
 						# chunk results ready to send
@@ -968,7 +968,14 @@ sub db_hashhash {
 					}
 					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
 						# Make output include the results
-						$self->{output} = { result => $result, id => $data->{id}, cols => [ @cols ], chunked => $data->{chunked}, primary_key => $data->{primary_key} };
+						$self->{output} = {
+                            rows => $rows,
+                            result => $result,
+                            id => $data->{id},
+                            cols => [ @cols ],
+                            chunked => $data->{chunked},
+                            primary_key => $data->{primary_key}
+                        };
 					}
 				}
 				# in the case that our rows == chunk
@@ -994,7 +1001,7 @@ sub db_hashhash {
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
-		$self->{output} = { id => $data->{id}, result => $result, cols => [ @cols ], primary_key => $data->{primary_key} };
+		$self->{output} = { rows => $rows, id => $data->{id}, result => $result, cols => [ @cols ], primary_key => $data->{primary_key} };
 		if (exists($data->{chunked})) {
 			$self->{output}->{last_chunk} = 1;
 			$self->{output}->{chunked} = $data->{chunked};
@@ -1019,6 +1026,7 @@ sub db_hasharray {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
+    my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1087,7 +1095,6 @@ sub db_hasharray {
 		
 			# Actually do the query!
 			try {
-				my $rows = 0;
 				while ( my @row = $sth->fetchrow_array() ) {
 					if (exists($data->{chunked}) && defined($self->{output})) {
 						# chunk results ready to send
@@ -1099,7 +1106,7 @@ sub db_hasharray {
 					push(@{ $result->{$row[$col{$data->{primary_key}}]} }, @row);
 					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
 						# Make output include the results
-						$self->{output} = { result => $result, id => $data->{id}, cols => [ @cols ], chunked => $data->{chunked}, primary_key => $data->{primary_key} };
+						$self->{output} = { rows => $rows, result => $result, id => $data->{id}, cols => [ @cols ], chunked => $data->{chunked}, primary_key => $data->{primary_key} };
 					}
 				}
 				# in the case that our rows == chunk
@@ -1125,7 +1132,7 @@ sub db_hasharray {
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
-		$self->{output} = { result => $result, id => $data->{id}, cols => [ @cols ], primary_key => $data->{primary_key} };
+		$self->{output} = { rows => $rows, result => $result, id => $data->{id}, cols => [ @cols ], primary_key => $data->{primary_key} };
 		if (exists($data->{chunked})) {
 			$self->{output}->{last_chunk} = 1;
 			$self->{output}->{chunked} = $data->{chunked};
@@ -1150,6 +1157,7 @@ sub db_array {
 	# Variables we use
 	my $sth = undef;
 	my $result = [];
+    my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1192,7 +1200,9 @@ sub db_array {
 			
 			# Actually do the query!
 			try {
-				my $rows = 0;	
+			    # There are warnings when joining a NULL field, which is undef
+				no warnings;
+
 				while ( my @row = $sth->fetchrow_array() ) {
 					if (exists($data->{chunked}) && defined($self->{output})) {
 						# chunk results ready to send
@@ -1201,22 +1211,20 @@ sub db_array {
 						$rows = 0;
 					}
 					$rows++;
-					# There are warnings when joining a NULL field, which is undef
-					no warnings;
 					if (exists($data->{seperator})) {
 						push(@{$result},join($data->{seperator},@row));
 					} else {
 						push(@{$result},join(',',@row));
 					}
-					use warnings;
 					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
 						# Make output include the results
-						$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };
+						$self->{output} = { rows => $rows, result => $result, id => $data->{id}, chunked => $data->{chunked} };
 					}
 				}
 				# in the case that our rows == chunk
 				$self->{output} = undef;
 				
+			    use warnings;
 			} catch Error with {
 				die $!;
 				#die $sth->errstr;
@@ -1238,7 +1246,7 @@ sub db_array {
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
-		$self->{output} = { result => $result, id => $data->{id} };
+		$self->{output} = { rows => $rows, result => $result, id => $data->{id} };
 		if (exists($data->{chunked})) {
 			$self->{output}->{last_chunk} = 1;
 			$self->{output}->{chunked} = $data->{chunked};
@@ -1263,6 +1271,7 @@ sub db_arrayarray {
 	# Variables we use
 	my $sth = undef;
 	my $result = [];
+    my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1305,7 +1314,6 @@ sub db_arrayarray {
 			
 			# Actually do the query!
 			try {
-				my $rows = 0;	
 				while ( my @row = $sth->fetchrow_array() ) {
 					if (exists($data->{chunked}) && defined($self->{output})) {
 						# chunk results ready to send
@@ -1318,7 +1326,7 @@ sub db_arrayarray {
 					push(@{$result},\@row);
 					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
 						# Make output include the results
-						$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };
+						$self->{output} = { rows => $rows, result => $result, id => $data->{id}, chunked => $data->{chunked} };
 					}
 				}
 				# in the case that our rows == chunk
@@ -1346,7 +1354,7 @@ sub db_arrayarray {
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
-		$self->{output} = { result => $result, id => $data->{id} };
+		$self->{output} = { rows => $rows, result => $result, id => $data->{id} };
 		if (exists($data->{chunked})) {
 			$self->{output}->{last_chunk} = 1;
 			$self->{output}->{chunked} = $data->{chunked};
@@ -1371,6 +1379,7 @@ sub db_hash {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
+    my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1417,6 +1426,7 @@ sub db_hash {
 				my @row = $sth->fetchrow_array();
 				
 				if (@row) {
+                    $rows = @row;
 					for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
 						$result->{$sth->{NAME}->[$i]} = $row[$i];
 					}
@@ -1442,7 +1452,7 @@ sub db_hash {
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
-		$self->{output} = { result => $result, id => $data->{id} };
+		$self->{output} = { rows => $rows, result => $result, id => $data->{id} };
 	}
 
 	# Finally, we clean up this statement handle
@@ -1463,6 +1473,7 @@ sub db_keyvalhash {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
+    my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1502,7 +1513,6 @@ sub db_keyvalhash {
 	
 			# Actually do the query!
 			try {
-				my $rows = 0;
 				while (my @row = $sth->fetchrow_array()) {
 					if ($#row < 1) {
 						die 'You need at least 2 columns selected for a keyvalhash query';
@@ -1517,7 +1527,7 @@ sub db_keyvalhash {
 					$result->{$row[0]} = $row[1];
 					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
 						# Make output include the results
-						$self->{output} = { result => $result, id => $data->{id}, chunked => $data->{chunked} };
+						$self->{output} = { rows => $rows, result => $result, id => $data->{id}, chunked => $data->{chunked} };
 					}
 				}
 				# in the case that our rows == chunk
@@ -1543,7 +1553,7 @@ sub db_keyvalhash {
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
-		$self->{output} = { result => $result, id => $data->{id} };
+		$self->{output} = { rows => $rows, result => $result, id => $data->{id} };
 		if (exists($data->{chunked})) {
 			$self->{output}->{last_chunk} = 1;
 			$self->{output}->{chunked} = $data->{chunked};

@@ -1,5 +1,8 @@
 Revision history for POE::Component::EasyDBI.
 
+1.08 Sun Jan 29 2006
+    - added rows key to more queries, it returns number of rows affected (TODO on docs)
+
 1.07 Sat Jan 28 2006
     - I inadvertently disabled support for code refs in events
     - added a test for code refs in events
