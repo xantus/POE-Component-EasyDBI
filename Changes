@@ -1,5 +1,11 @@
 Revision history for POE::Component::EasyDBI.
 
+1.07 Sat Jan 28 2006
+    - I inadvertently disabled support for code refs in events
+    - added a test for code refs in events
+    - stopwatch is now set when a query is sent to the subprocess, not when it enters the que
+    - changed query binding, so you can bind using ints without the quoting  ie, LIMIT ?,?
+    
 1.06 Fri Jan 20 2006
 	- added CHLD handling
 

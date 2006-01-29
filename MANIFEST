@@ -6,7 +6,6 @@ README_TOO
 lib/POE/Component/EasyDBI.pm
 lib/POE/Component/EasyDBI/SubProcess.pm
 examples/test.pl
-contrib/SubProcess.pm-0.09-new-placeholders.diff
 t/1.t
 t/2.t
 META.yml

@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.06 $))[1];
+our $VERSION = (qw($Revision: 1.07 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -286,6 +286,8 @@ sub shutdown_poco {
     } else {
         # Remove our alias so we can be properly terminated
         $kernel->alias_remove($heap->{alias}) if ($heap->{alias} ne '');
+        # and the child
+        #$kernel->sig( 'CHLD' );
     }
 
     # Check if we got "NOW"
@@ -387,12 +389,12 @@ sub db_handler {
                 $kernel->post($args->{session}, $args->{event}, $args);
             } else {
                 my $callback = delete $args->{event};
-                if (ref($callback) eq 'CODE') {
-                    $_[ARG0] = $args;
-                    $callback->(@_);
-                } else {
+#                if (ref($callback) eq 'CODE') {
+#                    $_[ARG0] = $args;
+#                    $callback->(@_);
+#                } else {
                     $callback->($args);
-                }   
+#                }   
             }
             return;
         }
@@ -477,10 +479,6 @@ sub db_handler {
         return;
     }
 
-    if ($heap->{opts}{stopwatch}) {
-        tie $args->{stopwatch}, 'Time::Stopwatch';
-    }
-
     # Increment the refcount for the session that is sending us this query
     $kernel->refcount_increment($_[SENDER]->ID(), 'EasyDBI');
 
@@ -524,13 +522,16 @@ sub check_queue {
     # shutting down?
     return unless ($heap->{shutdown} != 2);
     
+    if ($heap->{opts}{stopwatch}) {
+        tie $heap->{queue}->[0]->{stopwatch}, 'Time::Stopwatch';
+    }
+
     # Copy what we need from the top of the queue
     my %queue;
     foreach (
         qw( id sql action placeholders no_cache begin_work commit )
         ,@{$heap->{action_params}->{$heap->{queue}->[0]->{action}}}
     ) {
-
         next unless (defined($heap->{queue}->[0]->{$_}));
         $queue{$_} = $heap->{queue}->[0]->{$_};
     }
@@ -829,34 +830,34 @@ sub child_STDOUT {
 
     my $query_copy = { %$query, %$data };
 
-    my ($ses,$evt) = ("$query_copy->{session}", "$query_copy->{event}");
+#    my ($ses,$evt) = ("$query_copy->{session}", "$query_copy->{event}");
     
-    $kernel->call($ses => $evt => $query_copy);
+#    $kernel->call($ses => $evt => $query_copy);
     
     #undef $query;
     #foreach my $k (keys %$data) {
     #   $query_copy->{$k} = $data->{$k};
     #}
     
-#   if (!ref($query_copy->{event})) {
-#       #DEBUG && print "calling event $query->{event} in session $query->{session} from our session ".$_[SESSION]->ID."\n";
-#       $kernel->call($query_copy->{session} => $query_copy->{event} => $query_copy);
-#   } else {
-#       DEBUG && print "calling callback\n";
-#       my $callback = delete $query_copy->{event};
-##      if (ref($callback) eq 'CODE') {
-##          $_[ARG0] = $query_copy;
+   if (!ref($query_copy->{event})) {
+       #DEBUG && print "calling event $query->{event} in session $query->{session} from our session ".$_[SESSION]->ID."\n";
+       $kernel->call($query_copy->{session} => $query_copy->{event} => $query_copy);
+   } else {
+       DEBUG && print "calling callback\n";
+       my $callback = delete $query_copy->{event};
+#      if (ref($callback) eq 'CODE') {
+#          $_[ARG0] = $query_copy;
 #           $callback->(@_);
 #           undef $callback;
-##      } else {
-##          $callback->($query_copy);
-##      }
-#   }
+#      } else {
+          $callback->($query_copy);
+#      }
+   }
 
     # Decrement the refcount for the session that sent us a query
     if ($refcount_decrement) {
         $heap->{active} = 0;
-        $kernel->refcount_decrement($query->{session}, 'EasyDBI');
+        $kernel->refcount_decrement($query_copy->{session}, 'EasyDBI');
 
         # Now, that we have got a result, check if we need to send another query
         $kernel->call($_[SESSION], 'check_queue');
@@ -878,7 +879,7 @@ sub child_STDERR {
 }
 
 sub sig_child {
-
+    # nothing
 }
 
 # ----------------

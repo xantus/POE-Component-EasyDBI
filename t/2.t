@@ -4,7 +4,7 @@
 # vim: syntax=perl ts=4
 #########################
 
-use Test::More tests => 16; # was 17
+use Test::More tests => 17;
 #use Carp;
 #$SIG{__WARN__} = \&Carp::cluck;
 
@@ -152,7 +152,7 @@ SKIP: {
 				$_[KERNEL]->post(db => do => {
 					begin_work => 1,
 					sql => 'UPDATE test SET bar=? WHERE id=?',
-					placeholders => [ '\'blah"', 2 ],
+					placeholders => [ '\'%blah"', 2 ],
 					# using a session id here is messing up?
 					event => 'update',
 				});
@@ -183,15 +183,15 @@ SKIP: {
 				pass("commit"); # 12
 #				$_[KERNEL]->post(db => quote => {
 #	#				method => 'quote',
-#					sql => '\'blah"',
-#	#				args => [ '\'blah"' ],
+#					sql => '\'%blah"',
+#	#				args => [ '\'%blah"' ],
 #					event => 'keyvalhash',
 #				});
 #			},
 #			keyvalhash => sub {
 #				$_[ARG0]->{error} = "incorrect result:quote == $_[ARG0]->{result}"
 #					unless (defined($_[ARG0]->{result})
-#					&& $_[ARG0]->{result} eq '\'\\\'blah"\''
+#					&& $_[ARG0]->{result} eq '\'\\\'%blah"\''
 #					&& !defined($_[ARG0]->{error}));
 #				
 #				if (defined($_[ARG0]->{error})) {
@@ -209,7 +209,7 @@ SKIP: {
 				$_[ARG0]->{error} = "incorrect result:keyvalhash"
 					unless (defined($_[ARG0]->{result})
 					&& ref($_[ARG0]->{result}) eq 'HASH'
-					&& $_[ARG0]->{result}->{2} eq '\'blah"'
+					&& $_[ARG0]->{result}->{2} eq '\'%blah"'
 					&& $_[ARG0]->{result}->{1} eq 'a quick brown fox'
 					&& !defined($_[ARG0]->{error}));
 				if (defined($_[ARG0]->{error})) {
@@ -228,7 +228,7 @@ SKIP: {
 				$_[ARG0]->{error} = "incorrect result:hashhash"
 					unless (defined($_[ARG0]->{result})
 					&& ref($_[ARG0]->{result}) eq 'HASH'
-					&& $_[ARG0]->{result}->{2}->{bar} eq '\'blah"'
+					&& $_[ARG0]->{result}->{2}->{bar} eq '\'%blah"'
 					&& $_[ARG0]->{result}->{1}->{bar} eq 'a quick brown fox'
 					&& $_[ARG0]->{result}->{1}->{foo} eq '123456'
 					&& $_[ARG0]->{result}->{2}->{foo} eq '7891011'
@@ -256,7 +256,7 @@ SKIP: {
 				}
 				my @r = [
 					{ id => 1, foo => 123456, bar => 'a quick brown fox' },
-					{ id => 2, foo => 7891011, bar => '\'blah"'},
+					{ id => 2, foo => 7891011, bar => '\'%blah"'},
 				];
 				my $d = $_[ARG0]->{result};
 				for my $i ( 0 .. $#{$r} ) {
@@ -288,12 +288,20 @@ SKIP: {
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}
 				pass('arrayarray'); # 16
-				$_[KERNEL]->post(test => 'shutdown');
+				$_[KERNEL]->post(db => do => {
+					sql => 'DELETE FROM test',
+					event => sub {
+                        #warn $_[0]->{rows};
+				        pass('eventcode'); # 17
+                        $poe_kernel->post(test => 'shutdown');
+                    },
+				});
 			},
 			shutdown => sub {
 				$_[KERNEL]->alarm_remove_all();
 				$_[KERNEL]->alias_remove('test');
-				$_[KERNEL]->call(db => 'shutdown' => $_[ARG0]);
+				$_[KERNEL]->sig('CHLD');
+                $_[KERNEL]->call(db => 'shutdown' => $_[ARG0]);
 				return;
 			},
 		},
