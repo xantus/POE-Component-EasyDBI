@@ -17,7 +17,7 @@ BEGIN {
 SKIP: {
 	eval "use DBD::SQLite";
 	my $have_module = ($@) ? 0 : 1;
-	skip "DBD::SQLite not installed", 13 unless $have_module;
+	skip "DBD::SQLite not installed", 14 unless $have_module;
 
 	POE::Session->create(
 #		options => { trace => 1},

@@ -1,5 +1,8 @@
 Revision history for POE::Component::EasyDBI.
 
+1.09 Wed Feb 08 2006
+    -  fixed test count, if you didn't have DBD::SQLite, t/2.t would fail
+
 1.08 Sun Jan 29 2006
     - added rows key to more queries, it returns number of rows affected (TODO on docs)
 
