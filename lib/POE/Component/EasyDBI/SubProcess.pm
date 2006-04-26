@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.09 $))[1];
+our $VERSION = (qw($Revision: 1.11 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -13,7 +13,7 @@ use Error qw( :try );
 use POE::Filter::Reference;
 
 # We run the actual DB connection here
-use DBI qw(:sql_types);
+use DBI;
 
 sub new {
 	my ($class, $opts) = @_;
@@ -481,8 +481,7 @@ sub db_single {
 			} else {
 				# Execute the query
 				try {
-                    $self->bind($sth, $data->{placeholders});
-					$sth->execute();
+                    $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
@@ -493,8 +492,8 @@ sub db_single {
 			try {
 				# There are warnings when joining a NULL field, which is undef
 				no warnings;
-				if (exists($data->{seperator})) {
-					$result = join($data->{seperator},$sth->fetchrow_array());
+				if (exists($data->{separator})) {
+					$result = join($data->{separator},$sth->fetchrow_array());
 				} else {
 					$result = $sth->fetchrow_array();
 				}		
@@ -594,8 +593,7 @@ sub db_insert {
 			} else {
 				# Execute the query
 				try {
-                    $self->bind($sth, $data->{placeholders});
-					$rows += $sth->execute();
+                    $rows += $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					if (defined($sth->errstr)) {
 						die $sth->errstr;
@@ -723,8 +721,7 @@ sub db_do {
 			} else {
 				# Execute the query
 				try {
-                    $self->bind($sth, $data->{placeholders});
-					$rows += $sth->execute();
+                    $rows += $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
@@ -798,8 +795,7 @@ sub db_arrayhash {
 			} else {
 				# Execute the query
 				try {
-                    $self->bind($sth, $data->{placeholders});
-					$sth->execute();
+                    $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
@@ -913,8 +909,7 @@ sub db_hashhash {
 			} else {
 				# Execute the query
 				try {
-                    $self->bind($sth, $data->{placeholders});
-					$sth->execute();
+                    $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
@@ -963,8 +958,8 @@ sub db_hashhash {
 						$rows = 0;
 					}
 					$rows++;
-					foreach my $c (@cols) {
-						$result->{$row[$col{$data->{primary_key}}]}{$c} = $row[$col{$c}];
+					foreach (@cols) {
+						$result->{$row[$col{$data->{primary_key}}]}{$_} = $row[$col{$_}];
 					}
 					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
 						# Make output include the results
@@ -1058,8 +1053,7 @@ sub db_hasharray {
 			} else {
 				# Execute the query
 				try {
-                    $self->bind($sth, $data->{placeholders});
-					$sth->execute();
+                    $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
@@ -1187,8 +1181,7 @@ sub db_array {
 			} else {
 				# Execute the query
 				try {
-                    $self->bind($sth, $data->{placeholders});
-					$sth->execute();
+                    $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
@@ -1211,8 +1204,8 @@ sub db_array {
 						$rows = 0;
 					}
 					$rows++;
-					if (exists($data->{seperator})) {
-						push(@{$result},join($data->{seperator},@row));
+					if (exists($data->{separator})) {
+						push(@{$result},join($data->{separator},@row));
 					} else {
 						push(@{$result},join(',',@row));
 					}
@@ -1224,7 +1217,6 @@ sub db_array {
 				# in the case that our rows == chunk
 				$self->{output} = undef;
 				
-			    use warnings;
 			} catch Error with {
 				die $!;
 				#die $sth->errstr;
@@ -1301,8 +1293,7 @@ sub db_arrayarray {
 			} else {
 				# Execute the query
 				try {
-                    $self->bind($sth, $data->{placeholders});
-					$sth->execute();
+                    $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
@@ -1409,8 +1400,7 @@ sub db_hash {
 			} else {
 				# Execute the query
 				try {
-                    $self->bind($sth, $data->{placeholders});
-					$sth->execute();
+                    $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
@@ -1503,8 +1493,7 @@ sub db_keyvalhash {
 			} else {
 				# Execute the query
 				try {
-                    $self->bind($sth, $data->{placeholders});
-					$sth->execute();
+                    $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
@@ -1589,17 +1578,6 @@ sub output {
 	print STDOUT @$outdata;
 	
 	return;
-}
-
-# Private methods
-
-sub bind {
-    my ($self, $sth, $p) = @_;
-    
-    for my $i ( 0 .. $#$p ) {
-        local $_ = $p->[$i];
-        $sth->bind_param($i+1 => $_, ((defined && m/^\d+$/) ? SQL_INTEGER : ()));
-    }
 }
 
 1;

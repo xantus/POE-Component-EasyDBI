@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.09 $))[1];
+our $VERSION = (qw($Revision: 1.11 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -17,6 +17,7 @@ use POE::Component::EasyDBI::SubProcess;
 # Miscellaneous modules
 use Carp;
 
+# TODO use constants?
 sub MAX_RETRIES () { 5 }
 sub DEBUG () { 0 }
 
@@ -157,10 +158,7 @@ sub new {
         }
     }
     
-    my $keep = {};
-    foreach (@valid) {
-        $keep->{$_} = delete $opt{$_};
-    }
+    my $keep = { map { $_ => delete $opt{$_} } @valid };
 
     # Anything left over is unrecognized
     if (keys %opt) {
@@ -249,9 +247,9 @@ sub new {
                 begin_work => [],
                 func => [qw( args )],
                 method => [qw( function args )],
-                single => [qw( seperator )],
+                single => [qw( separator )],
                 insert => [qw( insert hash table last_insert_id )],
-                array => [qw( chunked seperator )],
+                array => [qw( chunked separator )],
                 arrayarray => [qw( chunked )],
                 keyvalhash => [qw( primary_key chunked )],
                 hashhash => [qw( primary_key chunked )],
@@ -349,6 +347,11 @@ sub db_handler {
         $args = { @_[ARG0 .. $#_ ] };
     }
 
+    # fix a stupid spelling mistake
+    if ($args->{seperator}) {
+        $args->{separator} = $args->{seperator};
+    }
+    
     # Add some stuff to the args
     # defaults to sender, but can be specified
     unless (defined($args->{session})) {
@@ -1366,8 +1369,8 @@ or
     $sth = $dbh->prepare_cached( $SQL );
     $sth->execute( $PLACEHOLDERS );
     while ( @row = $sth->fetchrow_array() ) {
-        if ($seperator) {
-            push( @results,join($seperator,@row) );
+        if ($separator) {
+            push( @results,join($separator,@row) );
         } else {
             push( @results,join(',',@row) );
         }
@@ -1381,14 +1384,14 @@ or
             sql => 'SELECT this FROM my_table WHERE my_id = ?',
             event => 'result_handler',
             placeholders => [ qw( 2021 ) ],
-            seperator => ',', # default seperator
+            separator => ',', # default separator
         }
     );
 
     The Success Event handler will get a hash in ARG0:
     {
         sql             =>  SQL sent
-        result          =>  Array of scalars (joined with seperator if more
+        result          =>  Array of scalars (joined with separator if more
             than one column is returned)
         rows            =>  Scalar value of rows
         placeholders    =>  Original placeholders
@@ -1690,13 +1693,13 @@ occurred.  Always, always, _always_ check for this in this event.
 
 ***** NOTE *****
 
-=item C<seperator>
+=item C<separator>
 
 Query types single, and array accept this parameter.
 The default is a comma (,) and is optional
 
 If a query has more than one column returned, the columns are joined with
-the 'seperator'.
+the 'separator'.
 
 =item C<primary_key>
 
@@ -1799,14 +1802,14 @@ This will shutdown EasyDBI.
                 # look at 'hash' to get those results
                 
                 # If you select more than one field, you will only get the last one
-                # unless you pass in a seperator with what you want the fields seperated by
-                # to get null sperated values, pass in seperator => "\0"
+                # unless you pass in a separator with what you want the fields seperated by
+                # to get null sperated values, pass in separator => "\0"
                 $_[KERNEL]->post( 'EasyDBI',
                     single => {
                         sql => 'Select user_id,user_login from users where user_id = ?',
                         event => 'single_handler',
                         placeholders => [ qw( 144 ) ],
-                        seperator => ',', #optional!
+                        separator => ',', #optional!
                     }
                 );
 
@@ -1952,7 +1955,7 @@ This will shutdown EasyDBI.
         #   result  => scalar
         #   placeholders => The placeholders
         #   action => 'single'
-        #   seperator => Seperator you may have sent
+        #   separator => Seperator you may have sent
         #   error => Error occurred, check this first
         # }
     }
@@ -2001,10 +2004,10 @@ This will shutdown EasyDBI.
         # $_[ARG0] = {
         #   sql => The SQL you sent
         #   result  => an array, if multiple fields are used, they are comma
-        #           seperated (specify seperator in event call to change this)
+        #           seperated (specify separator in event call to change this)
         #   placeholders => The placeholders
         #   action => 'array'
-        #   seperator => you sent  # optional!
+        #   separator => you sent  # optional!
         #   error => Error occurred, check this first
         # }
     }
