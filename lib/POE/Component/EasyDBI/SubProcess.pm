@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.11 $))[1];
+our $VERSION = (qw($Revision: 1.13 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -637,15 +637,13 @@ sub db_insert {
 				} elsif ($dsn =~ m/dbi:mysql/i) {
 					if (defined($self->{dbh}->{'mysql_insertid'})) {
 						$self->{output}->{insert_id} = $self->{dbh}->{'mysql_insertid'};
-						if (defined($sth)) {
-							$sth->finish();
-						}
-						return;
 					} else {
 						$qry = 'SELECT LAST_INSERT_ID()';
 					}
 				} elsif ($dsn =~ m/dbi:oracle/i) {
 					$qry = "SELECT $l->{field} FROM $l->{table}";
+                } elsif ($dsn =~ /dbi:sqlite/i) {
+                    $self->{output}->{insert_id} = $self->{dbh}->func('last_insert_rowid');
 				} else {
 					die "EasyDBI doesn't know how to handle a last_insert_id with your dbi, contact the author.";
 				}
@@ -653,16 +651,20 @@ sub db_insert {
 				# they are supplying thier own query
 				$qry = $data->{last_insert_id};
 			}
+            
 			if (defined($sth)) {
 				$sth->finish();
 			}
-			try {
-				$self->{output}->{insert_id} = $self->{dbh}->selectrow_array($qry);
-			} catch Error with {
-				die $sth->error;
-			};
+            
+            if ($qry) {
+    			try {
+	    			$self->{output}->{insert_id} = $self->{dbh}->selectrow_array($qry);
+		    	} catch Error with {
+			    	die $sth->error;
+    			};
 			
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+	    		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+            }
 		} catch Error with {
 			# special case, insert was ok, but last_insert_id errored
 			$self->{output}->{error} = shift;

@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.11 $))[1];
+our $VERSION = (qw($Revision: 1.13 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -185,9 +185,11 @@ sub new {
                 'child_closed'  =>  'child_closed',
                 'child_STDOUT'  =>  'child_STDOUT',
                 'child_STDERR'  =>  'child_STDERR',
-    
+   
+                'combo'         =>  'combo',
+   
                 # database events
-                (map { lc($_) => 'db_handler', uc($_) => 'db_handler' } qw(
+                (map { $_ => 'db_handler', uc($_) => 'db_handler' } qw(
                     commit
                     rollback
                     begin_work
@@ -333,6 +335,55 @@ sub shutdown_poco {
     }
 }
 
+sub combo {
+    my ($kernel, $heap, $args) = @_[KERNEL,HEAP,ARG0];
+
+    # Get the arguments
+    unless (ref($args) eq 'HASH') {
+        croak "first parameter to combo must be a hash ref";
+    }
+    
+    # Add some stuff to the args
+    # defaults to sender, but can be specified
+    unless (defined($args->{session})) {
+        $args->{session} = $_[SENDER]->ID();
+        DEBUG && print "setting session to $args->{session}\n";
+    }
+    
+    $args->{action} = $_[STATE];
+
+    if (!exists($args->{event})) {
+        # Nothing much we can do except drop this quietly...
+        warn "Did not receive an event argument from caller ".$_[SENDER]->ID
+            ."  State: " . $_[STATE] . " Args: " . join('',%$args);
+        return;
+    } else {
+        my $a = ref($args->{event});
+        unless (!ref($a) || $a =~ m/postback/i || $a =~ m/callback/i) {
+            warn "Received an malformed event argument from caller"
+                ." (only postbacks, callbacks and scalar allowed) "
+                .$_[SENDER]->ID." -> State: " . $_[STATE] . " Event: $args->{event}"
+                ." Args: " . %$args;
+            return;
+        }
+    }
+
+    my @res;
+    my $handle = sub {
+        push(@res, shift);
+        $poe_kernel->post( $args->{session} => $args->{event} => @res ) if (delete $res[ -1 ]->{__last});
+    };
+
+    foreach my $i ( 0 .. $#{ $args->{queries} } ) {
+        my ($type, $arg) = %{ $args->{queries}->[ $i ] };
+        $arg->{event} = $handle;
+        $arg->{__last} = ( $i == $#{ $args->{queries} } );
+        $kernel->call( $_[SESSION] => $type => $arg );
+    }
+
+    return;
+}
+
 # This subroutine handles queries
 sub db_handler {
     my ($kernel, $heap) = @_[KERNEL,HEAP];
@@ -342,7 +393,7 @@ sub db_handler {
     if (ref($_[ARG0]) eq 'HASH') {
         $args = $_[ARG0];
     } else {
-        warn "first parameter must be a ref hash, trying to adjust. "
+        warn "first parameter must be a hash ref, trying to adjust. "
             ."(fix this to get rid of this message)";
         $args = { @_[ARG0 .. $#_ ] };
     }
@@ -364,7 +415,7 @@ sub db_handler {
     if (!exists($args->{event})) {
         # Nothing much we can do except drop this quietly...
         warn "Did not receive an event argument from caller ".$_[SENDER]->ID
-            ."  State: " . $_[STATE] . " Args: " . %$args;
+            ."  State: " . $_[STATE] . " Args: " . join(',',%$args);
         return;
     } else {
         my $a = ref($args->{event});

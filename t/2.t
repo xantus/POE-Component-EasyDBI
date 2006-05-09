@@ -69,35 +69,38 @@ SKIP: {
 				}
 				# TODO check if table exists?
 				pass("create_in_memory_table"); # 6
-				$_[KERNEL]->post(db => insert => {
-#					begin_work => 1,
-					table => 'test',
-					insert => [
-						{ id => 1, foo => 123456, bar => 'a quick brown fox' },
-						{ id => 2, foo => 7891011, bar => time() },
-					],
-					event => '_no_event',
-				});
-				
-				# old hash way, but still supported
-				$_[KERNEL]->post(db => insert => {
-					table => 'test',
-					hash => { id => 2, foo => 7891011, bar => time() },
-					event => 'hash',
-#					commit => 1,
-				});
+                $_[KERNEL]->post(db => combo => {
+                    queries => [
+                        {
+                            insert => {
+                                table => 'test',
+                                insert => [
+                                    { id => 1, foo => 123456, bar => 'a quick brown fox' },
+                                    { id => 2, foo => 7891011, bar => time() },
+                                ],
+                            },
+                         },
+                         {
+                            insert => {
+                                table => 'test',
+                                hash => { id => 2, foo => 7891011, bar => time() },
+                            },
+                         },
+                    ],
+                    event => 'hash',
+                });
 			},
 			hash => sub {
-				$_[ARG0]->{error} = "incorrect result:insert = $_[ARG0]->{result}"
-					unless (!ref($_[ARG0]->{result})
-					&& $_[ARG0]->{result} == 1
-					&& !defined($_[ARG0]->{error}));
-				if (defined($_[ARG0]->{error})) {
-					diag("$_[ARG0]->{error}");
+				$_[ARG1]->{error} = "incorrect result:insert = $_[ARG1]->{result}"
+					unless (!ref($_[ARG1]->{result})
+					&& $_[ARG1]->{result} == 1
+					&& !defined($_[ARG1]->{error}));
+				if (defined($_[ARG1]->{error})) {
+					diag("$_[ARG1]->{error}");
 					fail("insert");
 					return $_[KERNEL]->call($_[SESSION] => shutdown => 'NOW');
 				}
-				diag("Query took $_[ARG0]->{stopwatch} seconds to complete") if (exists($_[ARG0]->{stopwatch}));
+				diag("Query took $_[ARG1]->{stopwatch} seconds to complete") if (exists($_[ARG1]->{stopwatch}));
 				pass("insert"); # 7
 				$_[KERNEL]->post(db => hash => {
 					sql => 'SELECT * FROM test WHERE id=?',
