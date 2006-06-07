@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.13 $))[1];
+our $VERSION = (qw($Revision: 1.14 $))[1];
 
 # Import what we need from the POE namespace
 use POE;
@@ -297,7 +297,7 @@ sub shutdown_poco {
 
         if ($heap->{wheel}) {
             # KILL our subprocess
-            $heap->{wheel}->kill(-9);
+            $heap->{wheel}->kill(9);
         }
 
         # Delete the wheel, so we have nothing to keep
@@ -1702,7 +1702,7 @@ or
 
     $kernel->call( 'EasyDBI', 'shutdown' => 'NOW' );
 
-    ALL shutdown NOW's send kill -9 to thier children, beware of any 
+    ALL shutdown NOW's send kill 9 to thier children, beware of any 
     transactions that you may be in. Your queries will revert if you are in
     transaction mode
 
