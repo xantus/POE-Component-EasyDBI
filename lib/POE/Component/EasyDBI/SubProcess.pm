@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.14 $))[1];
+our $VERSION = (qw($Revision: 1.15 $))[1];
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -151,7 +151,7 @@ sub connect {
 	try {
 		$self->{dbh} = DBI->connect(
 			# The DSN we just set up
-			map { $self->{$_} } qw( dsn username password ),
+			(map { $self->{$_} } qw( dsn username password )),
 
 			# We set some configuration stuff here
 			{

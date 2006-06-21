@@ -1,5 +1,8 @@
 Revision history for POE::Component::EasyDBI.
 
+1.15 Wed Jun 21 2006
+    - added parens around map, thanks Roman Parparov
+
 1.14 Wed Jun 07 2006
     - fixed kill 9 signal
         thanks to Roman for finding that

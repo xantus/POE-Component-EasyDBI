@@ -47,7 +47,7 @@ for POE::Component::SimpleDBI the basis of this PoCo
 	
 COPYRIGHT AND LICENCE
 
-Copyright 2003-2004 by David Davis and Teknikill Software
+Copyright 2003-2006 by David Davis and Teknikill Software
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.
