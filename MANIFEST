@@ -8,4 +8,5 @@ lib/POE/Component/EasyDBI/SubProcess.pm
 examples/test.pl
 t/1.t
 t/2.t
+t/3.t
 META.yml

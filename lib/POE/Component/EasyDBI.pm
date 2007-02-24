@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = (qw($Revision: 1.15 $))[1];
+our $VERSION = '1.16';
 
 # Import what we need from the POE namespace
 use POE;
@@ -14,8 +14,53 @@ use POE::Filter::Line;
 use POE::Wheel::Run;
 use POE::Component::EasyDBI::SubProcess;
 
+use Params::Util qw( _ARRAY _HASH _CODE );
+
 # Miscellaneous modules
 use Carp;
+use vars qw($AUTOLOAD);
+
+our %COMMANDS = map { $_ => 1 } qw(                    
+    commit
+    rollback
+    begin_work
+    func
+    method
+    insert
+    do
+    single
+    quote
+    arrayhash
+    hashhash
+    hasharray
+    array
+    arrayarray
+    hash
+    keyvalhash
+    shutdown
+    combo
+);
+
+sub AUTOLOAD {
+    my $self = shift;
+    my $method = $AUTOLOAD;
+    $method =~ s/.*:://;
+    my $call = ( $method =~ s/^_// ) ? 1 : 0;
+    
+    return unless $method =~ /[^A-Z]/;
+    
+    $method = lc( $method );
+    
+    croak "EasyDBI command $method does not exist"
+        unless ( exists( $COMMANDS{ $method } ) );
+
+    my @args = ( $method eq 'shutdown' ) ? @_ : { @_ };
+    if ( $call ) {
+        $poe_kernel->call($self->{ID} => $method => @args);
+    } else {
+        $poe_kernel->post($self->{ID} => $method => @args);
+    }
+}
 
 # TODO use constants?
 sub MAX_RETRIES () { 5 }
@@ -42,7 +87,7 @@ sub new {
     my %opt;
 
     # Support passing in a hash ref or a regular hash
-    if ((@_ & 1) && ref($_[0]) eq 'HASH') {
+    if ((@_ & 1) && _HASH($_[0])) {
         %opt = %{$_[0]};
     } else {
         # Sanity checking
@@ -74,6 +119,7 @@ sub new {
         no_cache
         alt_fork
         stopwatch
+        query_logger
     );
     
     # check the DSN
@@ -115,7 +161,7 @@ sub new {
     
     # check for connect error event
     if (exists($opt{connect_error})) {
-        if (ref($opt{connect_error}) eq 'ARRAY') {
+        if (_ARRAY($opt{connect_error})) {
             unless ($#{$opt{connect_error}} > 0) {
                 warn('connect_error must be an array reference that contains '
                 .'at least a session and event, ignoring');
@@ -130,7 +176,7 @@ sub new {
     
     # check for connect event
     if (exists($opt{connected})) {
-        if (ref($opt{connected}) eq 'ARRAY') {
+        if (_ARRAY($opt{connected})) {
             unless ($#{$opt{connected}} > 0) {
                 warn('connected must be an array reference that contains '
                 .'at least a session and event, ignoring');
@@ -144,7 +190,7 @@ sub new {
     }
 
     if (exists($opt{options})) {
-        unless (ref($opt{options}) eq 'HASH') {
+        unless (_HASH($opt{options})) {
             warn('options must be a hash ref, ignoring');
             delete $opt{options};
         }
@@ -166,7 +212,7 @@ sub new {
             .') were present in new() call to POE::Component::EasyDBI!');
     }
     
-    my $self = bless($keep,$class);
+    my $self = bless($keep,ref $class || $class);
 
     # Create a new session for ourself
     my $session = POE::Session->create(
@@ -177,7 +223,6 @@ sub new {
                 '_start'        =>  'start',
                 '_stop'         =>  'stop',
                 'setup_wheel'   =>  'setup_wheel',
-                'shutdown'      =>  'shutdown_poco',
                 'sig_child'     =>  'sig_child',
     
                 # child events
@@ -186,27 +231,15 @@ sub new {
                 'child_STDOUT'  =>  'child_STDOUT',
                 'child_STDERR'  =>  'child_STDERR',
    
-                'combo'         =>  'combo',
-   
                 # database events
-                (map { $_ => 'db_handler', uc($_) => 'db_handler' } qw(
-                    commit
-                    rollback
-                    begin_work
-                    func
-                    method
-                    insert
-                    do
-                    single
-                    quote
-                    arrayhash
-                    hashhash
-                    hasharray
-                    array
-                    arrayarray
-                    hash
-                    keyvalhash
-                )),
+                (map { $_ => 'db_handler', uc($_) => 'db_handler' } keys %COMMANDS),
+                
+                # redefine 
+                'combo'         =>  'combo_query',
+                'COMBO'         =>  'combo_query',
+                'shutdown'      =>  'shutdown_poco',
+                'SHUTDOWN'      =>  'shutdown_poco',
+   
             
                 # Queue handling
                 'send_query'    =>  'send_query',
@@ -260,7 +293,7 @@ sub new {
             },
         },
     ) or die 'Unable to create a new session!';
-
+    
     # save the session id
     $self->{ID} = $session->ID;
     
@@ -287,7 +320,7 @@ sub shutdown_poco {
         # Remove our alias so we can be properly terminated
         $kernel->alias_remove($heap->{alias}) if ($heap->{alias} ne '');
         # and the child
-        #$kernel->sig( 'CHLD' );
+        $kernel->sig( 'CHLD' );
     }
 
     # Check if we got "NOW"
@@ -335,12 +368,12 @@ sub shutdown_poco {
     }
 }
 
-sub combo {
+sub combo_query {
     my ($kernel, $heap, $args) = @_[KERNEL,HEAP,ARG0];
 
     # Get the arguments
-    unless (ref($args) eq 'HASH') {
-        croak "first parameter to combo must be a hash ref";
+    unless (_HASH($args)) {
+        $args = { @_[ ARG0 .. $#_ ] };
     }
     
     # Add some stuff to the args
@@ -390,7 +423,7 @@ sub db_handler {
 
     # Get the arguments
     my $args;
-    if (ref($_[ARG0]) eq 'HASH') {
+    if (_HASH($_[ARG0])) {
         $args = $_[ARG0];
     } else {
         warn "first parameter must be a hash ref, trying to adjust. "
@@ -438,17 +471,12 @@ sub db_handler {
     } else {
         if (ref($args->{sql})) {
             $args->{error} = 'sql is not a scalar!';
-            if (!ref($args->{event})) {
-                # Okay, send the error to the Failure Event
-                $kernel->post($args->{session}, $args->{event}, $args);
-            } else {
+            if (_CODE($args->{event})) {
                 my $callback = delete $args->{event};
-#                if (ref($callback) eq 'CODE') {
-#                    $_[ARG0] = $args;
-#                    $callback->(@_);
-#                } else {
-                    $callback->($args);
-#                }   
+                $callback->($args);
+            } else {
+                # send the error to the Failure Event
+                $kernel->post($args->{session}, $args->{event}, $args);
             }
             return;
         }
@@ -459,19 +487,14 @@ sub db_handler {
         # Create our own empty placeholders
         $args->{placeholders} = [];
     } else {
-        if (ref($args->{placeholders}) ne 'ARRAY') {
+        unless (_ARRAY($args->{placeholders})) {
             $args->{error} = 'placeholders is not an array!';
-            if (!ref($args->{event})) {
+            if (_CODE($args->{event})) {
+                my $callback = delete $args->{event};
+                $callback->($args);
+            } else {
                 # Okay, send the error to the Failure Event
                 $kernel->post($args->{session}, $args->{event}, $args);
-            } else {
-                my $callback = delete $args->{event};
-#               if (ref($callback) eq 'CODE') {
-#                   $_[ARG0] = $args;
-#                   $callback->(@_);
-#               } else {
-                    $callback->($args);
-#               }   
             }
             return;
         }
@@ -482,32 +505,22 @@ sub db_handler {
         if (!defined($args->{primary_key})) {
             $args->{error} =  'primary_key is not defined! It must '
                             .'be a column name or a 1 based index of a column';
-            if (!ref($args->{event})) {
-                $kernel->post($args->{session}, $args->{event}, $args);
-            } else {
+            if (_CODE($args->{event})) {
                 my $callback = delete $args->{event};
-#               if (ref($callback) eq 'CODE') {
-#                   $_[ARG0] = $args;
-#                   $callback->(@_);
-#               } else {
-                    $callback->($args);
-#               }   
+                $callback->($args);
+            } else {
+                $kernel->post($args->{session}, $args->{event}, $args);
             }
             return;
         } else {
             $args->{error} = 'primary_key is not a scalar!';
             if (ref($args->{sql})) {
-                # Okay, send the error to the Failure Event
-                if (!ref($args->{event})) {
-                    $kernel->post($args->{session}, $args->{event}, $args);
-                } else {
+                # send the error to the Failure Event
+                if (_CODE($args->{event})) {
                     my $callback = delete $args->{event};
-#                   if (ref($callback) eq 'CODE') {
-#                       $_[ARG0] = $args;
-#                       $callback->(@_);
-#                   } else {
-                        $callback->($args);
-#                   }
+                    $callback->($args);
+                } else {
+                    $kernel->post($args->{session}, $args->{event}, $args);
                 }
                 return;
             }
@@ -519,16 +532,11 @@ sub db_handler {
         $args->{error} = 'POE::Component::EasyDBI is shutting'
                     .' down now, requests are not accepted!';
         # Do not accept this query
-        if (!ref($args->{event})) {
-            $kernel->post($args->{session}, $args->{event}, $args);
-        } else {
+        if (_CODE($args->{event})) {
             my $callback = delete $args->{event};
-#           if (ref($callback) eq 'CODE') {
-#               $_[ARG0] = $args;
-#               $callback->(@_);
-#           } else {
-                $callback->($args);
-#           }
+            $callback->($args);
+        } else {
+            $kernel->post($args->{session}, $args->{event}, $args);
         }
         return;
     }
@@ -537,7 +545,7 @@ sub db_handler {
     $kernel->refcount_increment($_[SENDER]->ID(), 'EasyDBI');
 
     # Okay, fire off this query!
-    $kernel->yield('send_query', $args);
+    $kernel->call($_[SESSION] => 'send_query' => $args);
     
     return;
 }
@@ -547,7 +555,7 @@ sub send_query {
     my ($kernel, $heap, $args) = @_[KERNEL,HEAP,ARG0];
     
     # Validate that we have something
-    if (!defined($args) || ref($args) ne 'HASH') {
+    if (!defined($args) || !_HASH($args) ) {
         return;
     }
 
@@ -606,6 +614,8 @@ sub start {
     
     # Set up the alias for ourself
     $kernel->alias_set($heap->{alias}) if ($heap->{alias} ne '');
+    
+#    $kernel->sig( 'CHLD', 'sig_child' );
 
     # Create the wheel
     $kernel->yield('setup_wheel');
@@ -645,8 +655,9 @@ sub setup_wheel {
         );
     }
 
-    $kernel->sig( 'CHLD', 'sig_child' );
-
+#    $kernel->sig_child( $heap->{wheel_pid} )
+#        if ( $heap->{wheel_pid} );
+    
     # Set up the SubProcess we communicate with
     $heap->{wheel} = POE::Wheel::Run->new(
         # What we will run in the separate process
@@ -676,6 +687,10 @@ sub setup_wheel {
         'StderrFilter'  =>  POE::Filter::Line->new(),
     );
 
+    $heap->{wheel_pid} = $heap->{wheel}->PID();
+    
+    $kernel->sig_child( $heap->{wheel_pid} => 'sig_child' );
+
     # Check for errors
     if (! defined $heap->{wheel}) {
         die 'Unable to create a new wheel!';
@@ -697,7 +712,6 @@ sub setup_wheel {
     return;
 }
 
-# Stops everything we have
 sub stop {
     # nothing to see here, move along
 }
@@ -783,10 +797,10 @@ sub child_error {
 
 # Handles child STDOUT output
 sub child_STDOUT {
-    my ($kernel, $heap, $data) = @_[KERNEL,HEAP,ARG0];
+    my ($self, $kernel, $heap, $data) = @_[OBJECT,KERNEL,HEAP,ARG0];
     
     # Validate the argument
-    if (ref($data) ne 'HASH') {
+    unless ( _HASH($data) ) {
         warn "POE::Component::EasyDBI did not get a hash from the child ( $data )";
         return;
     }
@@ -807,19 +821,14 @@ sub child_STDOUT {
                 $qc = $heap->{queue}[0];
             }
             $qc->{error} = $data->{error};
-            if (ref($heap->{opts}{connect_error})) {
+            if (_ARRAY($heap->{opts}{connect_error})) {
                 $kernel->post(@{$heap->{opts}{connect_error}}, $qc);
             } elsif ($qc->{session} && $qc->{event}) {
-                if (!ref($qc)) {
-                    $kernel->post($qc->{session}, $qc->{event}, $qc);
-                } else {
+                if (_CODE($qc)) {
                     my $callback = delete $qc->{event};
-#                   if (ref($callback) eq 'CODE') {
-#                       $_[ARG0] = $qc;
-#                       $callback->(@_);
-#                   } else {
-                        $callback->($qc);
-#                   }
+                    $callback->($qc);
+                } else {
+                    $kernel->post($qc->{session}, $qc->{event}, $qc);
                 }
             } else {
                 warn "No connect_error defined and no queries in the queue while "
@@ -837,7 +846,7 @@ sub child_STDOUT {
     }
 
     if ($data->{id} eq 'DBI-CONNECTED') {
-        if (ref($heap->{opts}{connected})) {
+        if (_ARRAY($heap->{opts}{connected})) {
             my $query_copy = {};
             if (defined($heap->{queue}->[0])) {
                 $query_copy = { %{$heap->{queue}[0]} };
@@ -883,6 +892,10 @@ sub child_STDOUT {
 #   foreach (keys %$data) { $query_copy->{$_} = $data->{$_}; }
 
     my $query_copy = { %$query, %$data };
+    
+    # undocumented
+    $poe_kernel->call( $self->{query_logger} => _log => $query_copy )
+        if ( $self->{query_logger} );
 
 #    my ($ses,$evt) = ("$query_copy->{session}", "$query_copy->{event}");
     
@@ -893,19 +906,13 @@ sub child_STDOUT {
     #   $query_copy->{$k} = $data->{$k};
     #}
     
-   if (!ref($query_copy->{event})) {
-       #DEBUG && print "calling event $query->{event} in session $query->{session} from our session ".$_[SESSION]->ID."\n";
-       $kernel->call($query_copy->{session} => $query_copy->{event} => $query_copy);
-   } else {
+   if (_CODE($query_copy->{event})) {
        DEBUG && print "calling callback\n";
        my $callback = delete $query_copy->{event};
-#      if (ref($callback) eq 'CODE') {
-#          $_[ARG0] = $query_copy;
-#           $callback->(@_);
-#           undef $callback;
-#      } else {
-          $callback->($query_copy);
-#      }
+       $callback->($query_copy);
+   } else {
+       #DEBUG && print "calling event $query->{event} in session $query->{session} from our session ".$_[SESSION]->ID."\n";
+       $kernel->call($query_copy->{session} => $query_copy->{event} => $query_copy);
    }
 
     # Decrement the refcount for the session that sent us a query
@@ -933,7 +940,8 @@ sub child_STDERR {
 }
 
 sub sig_child {
-    # nothing
+    delete $_[HEAP]->{wheel_pid};
+    $_[KERNEL]->sig_handled();
 }
 
 # ----------------
@@ -948,7 +956,7 @@ sub ID {
 sub DESTROY {
     my $self = shift;
     if (ref($self) && $self->ID) {
-        $poe_kernel->post($self->ID => 'shutdown' => @_);
+#        $poe_kernel->post($self->ID => 'shutdown' => @_);
     } else {
         return undef;
     }
@@ -1816,6 +1824,16 @@ This retrieves the session ID.  When managing a pool of EasyDBI objects, you
 can set the alias to '' (nothing) and retrieve the session ID in this manner.
 
     $self->ID()
+
+=item C<commit, rollback, begin_work, func, method, insert, do, single, quote, arrayhash, hashhash, hasharray, array, arrayarray, hash, keyvalhash, combo, shutdown>
+
+All query types are now supported as object methods.  For example:
+
+    $self->arrayhash(
+        sql => 'SELECT user_id,user_login from users where logins = ?',
+        event => 'arrayash_handler',
+        placeholders => [ qw( 53 ) ],
+    );
 
 =item C<DESTROY>
 

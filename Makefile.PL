@@ -10,7 +10,8 @@ WriteMakefile(
 		'POE'		=>	(($^O eq 'MSWin32') ? '0.3101' : '0.20'),
 		'DBI'		=>	'1.38',
 		'Error'		=>	'0.15',
-		'Carp'		=>	'0',
+		'Carp'		=>	undef,
+        'Params::Util' => undef,
 #		'DBD::AnyData'	=>	'0',
     },
 	'dist'         => {

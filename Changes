@@ -1,5 +1,10 @@
 Revision history for POE::Component::EasyDBI.
 
+1.16 Fri Feb 23 2007
+    - proper child reaping added
+    - object methods for all query types added
+    - 3rd test for the new object methods added
+
 1.15 Wed Jun 21 2006
     - added parens around map, thanks Roman Parparov
 

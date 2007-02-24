@@ -1,13 +1,14 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         POE-Component-EasyDBI
-version:      1.15
+version:      1.16
 version_from: lib/POE/Component/EasyDBI.pm
 installdirs:  site
 requires:
-    Carp:                          0
+    Carp:                          
     DBI:                           1.38
     Error:                         0.15
+    Params::Util:                  
     POE:                           0.20
 
 distribution_type: module
