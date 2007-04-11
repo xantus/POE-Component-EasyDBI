@@ -1,5 +1,13 @@
 Revision history for POE::Component::EasyDBI.
 
+1.19 Wed Apr 11 2007
+    - added ability to pass blessed subs as an event callback
+    - added test with bless sub
+
+1.18 Dev version, not released
+
+1.17 Dev version, not released
+
 1.16 Fri Feb 23 2007
     - proper child reaping added
     - object methods for all query types added

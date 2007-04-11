@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = '1.16';
+our $VERSION = '1.19';
 
 # Import what we need from the POE namespace
 use POE;
@@ -14,7 +14,9 @@ use POE::Filter::Line;
 use POE::Wheel::Run;
 use POE::Component::EasyDBI::SubProcess;
 
-use Params::Util qw( _ARRAY _HASH _CODE );
+use Params::Util qw( _ARRAY _HASH );
+use Scalar::Util qw( reftype );
+
 
 # Miscellaneous modules
 use Carp;
@@ -471,7 +473,7 @@ sub db_handler {
     } else {
         if (ref($args->{sql})) {
             $args->{error} = 'sql is not a scalar!';
-            if (_CODE($args->{event})) {
+            if ( reftype( $args->{event} ) && reftype( $args->{event} ) eq 'CODE' ) {
                 my $callback = delete $args->{event};
                 $callback->($args);
             } else {
@@ -489,7 +491,7 @@ sub db_handler {
     } else {
         unless (_ARRAY($args->{placeholders})) {
             $args->{error} = 'placeholders is not an array!';
-            if (_CODE($args->{event})) {
+            if ( reftype( $args->{event} ) && reftype( $args->{event} ) eq 'CODE' ) {
                 my $callback = delete $args->{event};
                 $callback->($args);
             } else {
@@ -505,7 +507,7 @@ sub db_handler {
         if (!defined($args->{primary_key})) {
             $args->{error} =  'primary_key is not defined! It must '
                             .'be a column name or a 1 based index of a column';
-            if (_CODE($args->{event})) {
+            if ( reftype( $args->{event} ) && reftype( $args->{event} ) eq 'CODE' ) {
                 my $callback = delete $args->{event};
                 $callback->($args);
             } else {
@@ -516,7 +518,7 @@ sub db_handler {
             $args->{error} = 'primary_key is not a scalar!';
             if (ref($args->{sql})) {
                 # send the error to the Failure Event
-                if (_CODE($args->{event})) {
+                if ( reftype( $args->{event} ) && reftype( $args->{event} ) eq 'CODE' ) {
                     my $callback = delete $args->{event};
                     $callback->($args);
                 } else {
@@ -532,7 +534,7 @@ sub db_handler {
         $args->{error} = 'POE::Component::EasyDBI is shutting'
                     .' down now, requests are not accepted!';
         # Do not accept this query
-        if (_CODE($args->{event})) {
+        if ( reftype( $args->{event} ) && reftype( $args->{event} ) eq 'CODE' ) {
             my $callback = delete $args->{event};
             $callback->($args);
         } else {
@@ -615,8 +617,6 @@ sub start {
     # Set up the alias for ourself
     $kernel->alias_set($heap->{alias}) if ($heap->{alias} ne '');
     
-#    $kernel->sig( 'CHLD', 'sig_child' );
-
     # Create the wheel
     $kernel->yield('setup_wheel');
     
@@ -689,7 +689,11 @@ sub setup_wheel {
 
     $heap->{wheel_pid} = $heap->{wheel}->PID();
     
-    $kernel->sig_child( $heap->{wheel_pid} => 'sig_child' );
+    if ( $kernel->can( "sig_child" ) ) {
+        $kernel->sig_child( $heap->{wheel_pid} => 'sig_child' );
+    } else {
+        $kernel->sig( 'CHLD', 'sig_child' );
+    }
 
     # Check for errors
     if (! defined $heap->{wheel}) {
@@ -823,8 +827,9 @@ sub child_STDOUT {
             $qc->{error} = $data->{error};
             if (_ARRAY($heap->{opts}{connect_error})) {
                 $kernel->post(@{$heap->{opts}{connect_error}}, $qc);
+                delete $heap->{queue}[0]->{error};
             } elsif ($qc->{session} && $qc->{event}) {
-                if (_CODE($qc)) {
+                if ( reftype( $qc->{event} ) && reftype( $qc->{event} ) eq 'CODE' ) {
                     my $callback = delete $qc->{event};
                     $callback->($qc);
                 } else {
@@ -906,7 +911,7 @@ sub child_STDOUT {
     #   $query_copy->{$k} = $data->{$k};
     #}
     
-   if (_CODE($query_copy->{event})) {
+   if ( reftype( $query_copy->{event} ) && reftype( $query_copy->{event} ) eq 'CODE' ) {
        DEBUG && print "calling callback\n";
        my $callback = delete $query_copy->{event};
        $callback->($query_copy);

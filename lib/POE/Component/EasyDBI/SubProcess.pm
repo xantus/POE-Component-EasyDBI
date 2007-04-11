@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = '1.16';
+our $VERSION = '1.19';
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );

@@ -12,6 +12,7 @@ WriteMakefile(
 		'Error'		=>	'0.15',
 		'Carp'		=>	undef,
         'Params::Util' => undef,
+        'Scalar::Util' => undef,
 #		'DBD::AnyData'	=>	'0',
     },
 	'dist'         => {

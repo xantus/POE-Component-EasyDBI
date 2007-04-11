@@ -277,31 +277,32 @@ SKIP: {
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}										
 				pass("arrayhash"); # 15
-				$ezdbi->arrayarray(
+                $ezdbi->arrayarray(
 					sql => 'SELECT * FROM test ORDER BY id',
-					event => 'done',
+					event => AnonCallback->new(sub {    
+        				$_[ 0 ]->{error} = "incorrect result:arrayarray"
+        					unless (defined($_[ 0 ]->{result})
+		        			&& ref($_[ 0 ]->{result}) eq 'ARRAY'
+				        	&& !defined($_[ 0 ]->{error}));
+        				if (defined($_[ 0 ]->{error})) {
+		        			diag("$_[ 0 ]->{error}");
+				        	fail("arrayarray");
+        					return $poe_kernel->call(test => shutdown => 'NOW');
+		        		}
+				        pass('arrayarray'); # 16
+        				$ezdbi->do(
+		        			sql => 'UPDATE test SET id=0',
+				        	event => sub {
+                                #warn $_[0]->{rows};
+		        		        pass('eventcode'); # 17
+				                diag("Query affected ".$_[0]->{rows}." rows");
+                                $poe_kernel->post(test => 'shutdown');
+                            },
+		        		);
+                    }),
 				);
 			},
 			done => sub {
-				$_[ARG0]->{error} = "incorrect result:arrayarray"
-					unless (defined($_[ARG0]->{result})
-					&& ref($_[ARG0]->{result}) eq 'ARRAY'
-					&& !defined($_[ARG0]->{error}));
-				if (defined($_[ARG0]->{error})) {
-					diag("$_[ARG0]->{error}");
-					fail("arrayarray");
-					return $_[KERNEL]->call(test => shutdown => 'NOW');
-				}
-				pass('arrayarray'); # 16
-				$ezdbi->do(
-					sql => 'UPDATE test SET id=0',
-					event => sub {
-                        #warn $_[0]->{rows};
-				        pass('eventcode'); # 17
-				        diag("Query affected ".$_[0]->{rows}." rows");
-                        $poe_kernel->post(test => 'shutdown');
-                    },
-				);
 			},
 			shutdown => sub {
 				$_[KERNEL]->alarm_remove_all();
@@ -315,4 +316,12 @@ SKIP: {
 	POE::Kernel->run();
 
 };
+
+package AnonCallback;
+
+sub new {
+    my $class = shift;
+    bless( shift, $class );
+}
+
 #########################
