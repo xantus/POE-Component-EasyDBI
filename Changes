@@ -1,5 +1,8 @@
 Revision history for POE::Component::EasyDBI.
 
+1.20 Thu Apr 15 2007
+    - dbh->errstr can return '' with some DBD's, fixed thanks to dorian
+
 1.19 Wed Apr 11 2007
     - added ability to pass blessed subs as an event callback
     - added test with bless sub

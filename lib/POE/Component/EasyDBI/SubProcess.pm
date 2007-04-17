@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = '1.19';
+our $VERSION = '1.20';
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -485,7 +485,7 @@ sub db_single {
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
-				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# Actually do the query!
@@ -501,7 +501,7 @@ sub db_single {
 				die $sth->errstr;
 			};
 		
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 		} catch Error with {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
@@ -601,7 +601,7 @@ sub db_insert {
 						die "error when trying to execute bind of placeholders in insert: $_[0]";
 					}
 				};
-				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 		} catch Error with {
 			my $e = shift;
@@ -663,7 +663,7 @@ sub db_insert {
 			    	die $sth->error;
     			};
 			
-	    		if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
             }
 		} catch Error with {
 			# special case, insert was ok, but last_insert_id errored
@@ -727,7 +727,7 @@ sub db_do {
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
-				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 		} catch Error with {
 			$self->{output} = $self->make_error( $data->{id}, shift );
@@ -801,7 +801,7 @@ sub db_arrayhash {
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
-				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 	#		my $newdata;
@@ -838,7 +838,7 @@ sub db_arrayhash {
 			};
 		
 			# XXX is dbh->err the same as sth->err?
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -915,7 +915,7 @@ sub db_hashhash {
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
-				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# The result hash
@@ -982,7 +982,7 @@ sub db_hashhash {
 				die $sth->errstr;
 			};
 			
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -1059,7 +1059,7 @@ sub db_hasharray {
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
-				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 
 			# The result hash
@@ -1112,7 +1112,7 @@ sub db_hasharray {
 				die $sth->errstr;
 			};
 		
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -1187,7 +1187,7 @@ sub db_array {
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
-				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# The result hash
@@ -1224,7 +1224,7 @@ sub db_array {
 				#die $sth->errstr;
 			};
 			
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -1299,7 +1299,7 @@ sub db_arrayarray {
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
-				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# The result hash
@@ -1330,7 +1330,7 @@ sub db_arrayarray {
 				#die $sth->errstr;
 			};
 			
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -1406,7 +1406,7 @@ sub db_hash {
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
-				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# The result hash
@@ -1428,7 +1428,7 @@ sub db_hash {
 				die $sth->errstr;
 			};
 			
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -1499,7 +1499,7 @@ sub db_keyvalhash {
 				} catch Error with {
 					die (defined($sth->errstr)) ? $sth->errstr : $@;
 				};
-				if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# Actually do the query!
@@ -1528,7 +1528,7 @@ sub db_keyvalhash {
 				die $sth->errstr;
 			};
 			
-			if (defined($self->{dbh}->errstr)) { die $self->{dbh}->errstr; }
+            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
