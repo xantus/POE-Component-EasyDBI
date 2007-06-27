@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = '1.20';
+our $VERSION = '1.21';
 
 # Use Error.pm's try/catch semantics
 use Error qw( :try );
@@ -483,7 +483,7 @@ sub db_single {
 				try {
                     $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
-					die (defined($sth->errstr)) ? $sth->errstr : $@;
+					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
                 die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
@@ -725,7 +725,7 @@ sub db_do {
 				try {
                     $rows += $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
-					die (defined($sth->errstr)) ? $sth->errstr : $@;
+					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
                 die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
@@ -799,7 +799,7 @@ sub db_arrayhash {
 				try {
                     $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
-					die (defined($sth->errstr)) ? $sth->errstr : $@;
+					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
                 die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
@@ -913,7 +913,7 @@ sub db_hashhash {
 				try {
                     $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
-					die (defined($sth->errstr)) ? $sth->errstr : $@;
+					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
                 die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
@@ -1057,7 +1057,7 @@ sub db_hasharray {
 				try {
                     $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
-					die (defined($sth->errstr)) ? $sth->errstr : $@;
+					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
                 die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
@@ -1185,7 +1185,7 @@ sub db_array {
 				try {
                     $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
-					die (defined($sth->errstr)) ? $sth->errstr : $@;
+					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
                 die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
@@ -1297,7 +1297,7 @@ sub db_arrayarray {
 				try {
                     $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
-					die (defined($sth->errstr)) ? $sth->errstr : $@;
+					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
                 die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
@@ -1404,7 +1404,7 @@ sub db_hash {
 				try {
                     $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
-					die (defined($sth->errstr)) ? $sth->errstr : $@;
+					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
                 die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
@@ -1497,7 +1497,7 @@ sub db_keyvalhash {
 				try {
                     $sth->execute( @{ $data->{placeholders} } );
 				} catch Error with {
-					die (defined($sth->errstr)) ? $sth->errstr : $@;
+					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
                 die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}

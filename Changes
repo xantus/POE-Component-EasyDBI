@@ -1,5 +1,9 @@
 Revision history for POE::Component::EasyDBI.
 
+1.21 Wed Jun 27 2007
+    - fixed several incorrect uses of die, fixing errors that were just '1'
+      thanks Brett Paden!
+
 1.20 Thu Apr 15 2007
     - dbh->errstr can return '' with some DBD's, fixed thanks to dorian
 

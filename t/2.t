@@ -4,7 +4,7 @@
 # vim: syntax=perl ts=4
 #########################
 
-use Test::More tests => 17;
+use Test::More tests => 18;
 #use Carp;
 #$SIG{__WARN__} = \&Carp::cluck;
 
@@ -275,12 +275,25 @@ SKIP: {
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}										
 				pass("arrayhash"); # 15
+                warn "\nYou should see an error next, this is intended\n";
+				$_[KERNEL]->post(db => do => {
+					sql => 'PDATE TEST SET bar=2',
+					event => 'cause_error',
+				});
+			},
+            cause_error => sub {
+		        diag($_[ARG0]->{error}) if ($_[ARG0]->{error});
+				if (!defined($_[ARG0]->{error})) {
+					fail("cause_error");
+					return $_[KERNEL]->call(test => shutdown => 'NOW');
+				}
+				pass('cause_error'); # 16
 				$_[KERNEL]->post(db => arrayarray => {
 					sql => 'SELECT * FROM test ORDER BY id',
 					event => 'done',
 				});
 			},
-			done => sub {
+            done => sub {
 				$_[ARG0]->{error} = "incorrect result:arrayarray"
 					unless (defined($_[ARG0]->{result})
 					&& ref($_[ARG0]->{result}) eq 'ARRAY'
@@ -290,12 +303,12 @@ SKIP: {
 					fail("arrayarray");
 					return $_[KERNEL]->call(test => shutdown => 'NOW');
 				}
-				pass('arrayarray'); # 16
+				pass('arrayarray'); # 17
 				$_[KERNEL]->post(db => do => {
 					sql => 'UPDATE test SET id=0',
 					event => sub {
                         #warn $_[0]->{rows};
-				        pass('eventcode'); # 17
+				        pass('eventcode'); # 18
 				        diag("Query affected ".$_[0]->{rows}." rows");
                         $poe_kernel->post(test => 'shutdown');
                     },
