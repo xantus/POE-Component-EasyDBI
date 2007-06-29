@@ -1,7 +1,11 @@
 Revision history for POE::Component::EasyDBI.
 
+1.22 Thu Jun 27 2007
+    - fixed skip number in test 2, make test would fail if sqlite wasn't
+      installed
+
 1.21 Wed Jun 27 2007
-    - fixed several incorrect uses of die, fixing errors that were just '1'
+    - fixed several misplaced parens, fixing errors that were just '1'
       thanks Brett Paden!
 
 1.20 Thu Apr 15 2007
