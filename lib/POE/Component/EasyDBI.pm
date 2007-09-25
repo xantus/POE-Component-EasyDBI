@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = '1.22';
+our $VERSION = '1.23';
 
 # Import what we need from the POE namespace
 use POE;
@@ -649,8 +649,9 @@ sub setup_wheel {
     );
 
     if ($heap->{opts}{alt_fork} && $^O ne 'MSWin32') {
+        my $X = $heap->{opts}{alt_fork} ne "1" ? $heap->{opts}{alt_fork} : $^X;
         %prog = (
-            'Program'   =>  "$^X -MPOE::Component::EasyDBI::SubProcess -I".join(' -I',@INC)
+            'Program'   =>  "$X -MPOE::Component::EasyDBI::SubProcess -I".join(' -I',@INC)
                 ." -e 'POE::Component::EasyDBI::SubProcess::main(1)'",
         );
     }
@@ -1166,8 +1167,10 @@ using L<DBD::AnyData>.  This can be overridden with each query.
 
 =item C<alt_fork>
 
-Optional. If true, an alternate type of fork will be used for the database
+Optional. If 1, an alternate type of fork will be used for the database
 process.  This usually results in lower memory use of the child.
+You can also specify alt_fork => '/path/to/perl' if you are using POE inside of
+another app like irssi.
 *Experimental, and WILL NOT work on Windows Platforms*
 
 =item C<stopwatch>
