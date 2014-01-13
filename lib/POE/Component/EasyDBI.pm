@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = '1.23';
+our $VERSION = '1.24';
 
 # Import what we need from the POE namespace
 use POE;

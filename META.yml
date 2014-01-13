@@ -1,16 +1,29 @@
-# http://module-build.sourceforge.net/META-spec.html
-#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
-name:         POE-Component-EasyDBI
-version:      1.23
-version_from: lib/POE/Component/EasyDBI.pm
-installdirs:  site
+---
+abstract: 'Perl extension for asynchronous non-blocking DBI calls in POE'
+author:
+  - 'David Davis <xantus@cpan.org>'
+build_requires:
+  ExtUtils::MakeMaker: 0
+dynamic_config: 1
+generated_by: 'ExtUtils::MakeMaker version 6.82, CPAN::Meta::Converter version 2.133380'
+license: perl
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: POE-Component-EasyDBI
+no_index:
+  directory:
+    - t
+    - inc
 requires:
-    Carp:                          
-    DBI:                           1.38
-    Error:                         0.15
-    Params::Util:                  
-    POE:                           0.20
-    Scalar::Util:                  
-
-distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.17
+  Carp: 0
+  DBI: 1.38
+  Error: 0.15
+  POE: 0.20
+  Params::Util: 0
+  Scalar::Util: 0
+resources:
+  bugtracker: https://rt.cpan.org/Public/Dist/Display.html?Name=POE-Component-EasyDBI
+  license: http://dev.perl.org/licenses/
+  repository: https://github.com/gps4net/POE-Component-EasyDBI.git
+version: 1.24
