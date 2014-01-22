@@ -7,13 +7,13 @@ WriteMakefile(
     'NAME'         => 'POE::Component::EasyDBI',
     'VERSION_FROM' => 'lib/POE/Component/EasyDBI.pm', # finds $VERSION
     'PREREQ_PM'    => {
-        'POE' => ( ( $^O eq 'MSWin32' ) ? '0.3101' : '0.20' ),
-        'DBI' => '1.38',
+        'POE'          => ( ( $^O eq 'MSWin32' ) ? '0.3101' : '0.20' ),
+        'DBI'          => '1.38',
         'Error'        => '0.15',
         'Carp'         => 0,
         'Params::Util' => 0,
         'Scalar::Util' => 0,
-        #'DBD::AnyData'	=> 0,
+        #'DBD::AnyData' => 0,
     },
     'dist' => {
         'SUFFIX'       => ".gz",
@@ -28,13 +28,14 @@ WriteMakefile(
             ABSTRACT_FROM => 'lib/POE/Component/EasyDBI.pm', # retrieve abstract from module
             LICENSE => 'perl_5',
             AUTHOR  => 'David Davis <xantus@cpan.org>',
+            MIN_PERL_VERSION =>'5.006000',
             META_MERGE    => {
                 "meta-spec" => { version => 2 },
                 resources   => {
-					license => ['http://dev.perl.org/licenses/'],
-					bugtracker => {
-						web => 'https://rt.cpan.org/Public/Dist/Display.html?Name=POE-Component-EasyDBI',
-					},
+                    license => ['http://dev.perl.org/licenses/'],
+                    bugtracker => {
+                        web => 'https://rt.cpan.org/Public/Dist/Display.html?Name=POE-Component-EasyDBI',
+                    },
                     repository => {
                         type => 'git',
                         url  => 'https://github.com/gps4net/POE-Component-EasyDBI.git',
