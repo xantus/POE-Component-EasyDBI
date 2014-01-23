@@ -239,7 +239,7 @@ SKIP: {
 				];
 				my $d = $_[ARG0]->{result};
 				for my $i ( 0 .. $#{$r} ) {
-					foreach my $k (keys %{$r->[i]}) {
+					foreach my $k (keys %{$r->[$i]}) {
 						unless ($r->[$i]->{$k} eq $d->[$i]->{$k}) {
 							$_[ARG0]->{error} = "incorrect data in $i ($k)";
 						}

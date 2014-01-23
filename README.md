@@ -1,12 +1,11 @@
-POE::Component::EasyDBI
-===================================
+# POE::Component::EasyDBI
 
 This module simplifies DBI usage in POE's multitasking world.
 
 This module is easy to use, you'll have DBI calls in your POE program
 up and running in no time.
 
-INSTALLATION
+# INSTALLATION
 
 To install this module type the following:
 
@@ -15,7 +14,7 @@ To install this module type the following:
    make test
    make install
 
-DEPENDENCIES
+# DEPENDENCIES
 
 This module requires these other modules and libraries:
 
@@ -36,16 +35,18 @@ Optional:
 	SQLite
 		(for tests)
 
-AUTHOR
+# AUTHOR
 
 David Davis <xantus@cpan.org>
 
-CREDITS
+# CREDITS
 
-Apocalypse <apocal@cpan.org>
-for POE::Component::SimpleDBI the basis of this PoCo
-	
-COPYRIGHT AND LICENCE
+- Apocalypse <apocal@cpan.org>
+- Chris Williams <chris@bingosnet.co.uk>
+- Andy Grundman <andy@hybridized.org>
+- Stephan Jauernick <stephan@stejau.de>
+
+# COPYRIGHT AND LICENCE
 
 Copyright 2003-2006 by David Davis and Teknikill Software
 

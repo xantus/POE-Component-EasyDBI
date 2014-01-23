@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = '1.23';
+our $VERSION = '1.24';
 
 # Import what we need from the POE namespace
 use POE;
@@ -246,6 +246,7 @@ sub new {
                 # Queue handling
                 'send_query'    =>  'send_query',
                 'check_queue'   =>  'check_queue',
+                'print_queue'   =>  'print_queue',
             },
         ],
 
@@ -318,11 +319,6 @@ sub shutdown_poco {
             DEBUG && warn 'Duplicate shutdown NOW fired!';
             return;
         }
-    } else {
-        # Remove our alias so we can be properly terminated
-        $kernel->alias_remove($heap->{alias}) if ($heap->{alias} ne '');
-        # and the child
-        $kernel->sig( 'CHLD' );
     }
 
     # Check if we got "NOW"
@@ -411,6 +407,13 @@ sub combo_query {
 
     foreach my $i ( 0 .. $#{ $args->{queries} } ) {
         my ($type, $arg) = %{ $args->{queries}->[ $i ] };
+        
+        # Copy pass-through options
+        for my $key ( keys %{ $args } ) {
+            next if defined $arg->{$key} || $key eq 'queries';
+            $arg->{$key} = $args->{$key};
+        }
+        
         $arg->{event} = $handle;
         $arg->{__last} = ( $i == $#{ $args->{queries} } );
         $kernel->call( $_[SESSION] => $type => $arg );
@@ -544,7 +547,12 @@ sub db_handler {
     }
 
     # Increment the refcount for the session that is sending us this query
-    $kernel->refcount_increment($_[SENDER]->ID(), 'EasyDBI');
+    $kernel->refcount_increment($args->{session}, 'EasyDBI');
+    
+    if ($args->{session} ne $_[SENDER]->ID()) {
+        $kernel->refcount_increment($_[SENDER]->ID(), 'EasyDBI');
+        $args->{sendersession} = $_[SENDER]->ID();
+    }
 
     # Okay, fire off this query!
     $kernel->call($_[SESSION] => 'send_query' => $args);
@@ -610,6 +618,11 @@ sub check_queue {
     return;
 }
 
+sub print_queue {
+    my ($kernel, $heap) = @_[KERNEL,HEAP];
+    return scalar @{$heap->{queue}};
+}
+
 # This starts the EasyDBI
 sub start {
     my ($kernel, $heap) = @_[KERNEL,HEAP];
@@ -618,7 +631,7 @@ sub start {
     $kernel->alias_set($heap->{alias}) if ($heap->{alias} ne '');
     
     # Create the wheel
-    $kernel->yield('setup_wheel');
+    $kernel->call( $_[SESSION] => 'setup_wheel' );
     
     return;
 }
@@ -925,6 +938,10 @@ sub child_STDOUT {
     if ($refcount_decrement) {
         $heap->{active} = 0;
         $kernel->refcount_decrement($query_copy->{session}, 'EasyDBI');
+        
+        if (defined($query_copy->{sendersession}) && $query_copy->{sendersession} ne $query_copy->{session}) {
+            $kernel->refcount_decrement($query_copy->{sendersession}, 'EasyDBI');    
+        }
 
         # Now, that we have got a result, check if we need to send another query
         $kernel->call($_[SESSION], 'check_queue');
@@ -946,8 +963,17 @@ sub child_STDERR {
 }
 
 sub sig_child {
-    delete $_[HEAP]->{wheel_pid};
-    $_[KERNEL]->sig_handled();
+    my ($kernel, $heap) = @_[KERNEL, HEAP];
+    
+    delete $heap->{wheel_pid};
+    $kernel->sig_handled();
+    
+    if ( $heap->{shutdown} ) {
+        # Remove our alias so we can be properly terminated
+        $kernel->alias_remove($heap->{alias}) if ($heap->{alias} ne '');
+        # and the child
+        $kernel->sig( 'CHLD' );
+    }
 }
 
 # ----------------
@@ -1207,7 +1233,7 @@ or
     $kernel->post( 'EasyDBI',
         quote => {
                 sql => 'foo$*@%%sdkf"""',
-                event => $_[SESSION]->postack("quoted_handler"),
+                event => $_[SESSION]->postback("quoted_handler"),
                 session => 'dbi_helper', # or session id
         }
     );

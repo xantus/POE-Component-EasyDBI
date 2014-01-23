@@ -1,8 +1,9 @@
 Changes
 Makefile.PL
 MANIFEST
-README
+README.md
 README_TOO
+LICENSE
 lib/POE/Component/EasyDBI.pm
 lib/POE/Component/EasyDBI/SubProcess.pm
 examples/test.pl
