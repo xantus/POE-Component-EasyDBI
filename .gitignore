@@ -7,4 +7,5 @@ blib/
 *.bak
 *~
 .*
+/POE-Component-EasyDBI-*
 !.gitignore
