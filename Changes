@@ -1,6 +1,9 @@
 Revision history for POE::Component::EasyDBI.
 
 1.24
+    - Fix synopsis RT # 27863
+
+1.24
     - Updated EasyDBI.pm to properly handle the case where the sending session
       != event session (Stephan Jauernick)
     - Fixed RT #45212, fix warnings in tests (Chris Williams)

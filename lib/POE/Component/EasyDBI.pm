@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = '1.24';
+our $VERSION = '1.25';
 
 # Import what we need from the POE namespace
 use POE;
@@ -1013,7 +1013,7 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
 
 =head1 SYNOPSIS
 
-    use POE qw( Component::EasyDBI );
+    use POE qw(Component::EasyDBI);
 
     # Set up the DBI
     POE::Component::EasyDBI->spawn( # or new(), witch returns an obj
@@ -1030,9 +1030,9 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
     POE::Session->create(
         inline_states => {
             _start => sub {
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     do => {
-                        sql => 'CREATE TABLE users (id INT, username VARCHAR(100)',
+                        sql => 'CREATE TABLE users (id INT, username VARCHAR(100))',
                         event => 'table_created',
                     }
                 );
@@ -1046,15 +1046,24 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
                             { id => 2, username => 'bar' },
                             { id => 3, username => 'baz' },
                         ],
+                        table => 'users',
+                        event => 'done',
                     },
                 );
-                $_[KERNEL]->post( 'EasyDBI' => 'commit' );
-                $_[KERNEL]->post( 'EasyDBI' => 'shutdown' );
+                $_[KERNEL]->post('EasyDBI',
+                    commit => {
+                        event => 'done'
+                    }
+                );
+                $_[KERNEL]->post('EasyDBI' => 'shutdown');
             },
+            done => sub {
+                my $result = $_[ARG0];
+            }
         },
     );
 
-    $poe_kernel->run();
+    POE::Kernel->run();
 
 =head1 ABSTRACT
 
