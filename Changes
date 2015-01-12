@@ -1,7 +1,9 @@
 Revision history for POE::Component::EasyDBI.
 
 1.24
-    - Fix synopsis RT # 27863
+    - Fix synopsis RT #27863
+    - Add method action RT #68497, document it
+    - Update documentation
 
 1.24
     - Updated EasyDBI.pm to properly handle the case where the sending session
