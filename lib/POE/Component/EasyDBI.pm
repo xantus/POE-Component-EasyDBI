@@ -2185,7 +2185,11 @@ Nothing.
 =head1 SEE ALSO
 
 L<DBI>, L<POE>, L<POE::Wheel::Run>, L<POE::Component::DBIAgent>, L<POE::Component::LaDBI>,
-L<POE::Component::SimpleDBI>, L<DBD::AnyData>, L<DBD::SQLite>
+L<POE::Component::SimpleDBI>
+
+L<DBD::AnyData>, L<DBD::SQLite>
+
+L<AnyEvent::DBI>
 
 =head1 AUTHOR
 
