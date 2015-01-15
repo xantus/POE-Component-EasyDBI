@@ -8,17 +8,13 @@ use Test::More tests => 16;
 #use Carp;
 #$SIG{__WARN__} = \&Carp::cluck;
 
+use Test::Requires 'DBD::AnyData';
+
 BEGIN {
 	use_ok( 'POE' ); # 1
 	use_ok( 'POE::Component::EasyDBI' ); # 2
 	use_ok( 'POE::Component::EasyDBI::SubProcess' ); # 3
 };
-
-SKIP: {
-	eval "use DBD::AnyData";
-	my $have_anydata = ($@) ? 0 : 1;
-	skip "skipping DBD::AnyData tests due to DBD::AnyData and DBD::File being broken", 13;
-	skip "DBD::AnyData not installed", 12 unless $have_anydata;
 
 	POE::Session->create(
 		inline_states => {
@@ -279,5 +275,4 @@ SKIP: {
 	
 	POE::Kernel->run();
 
-};
 #########################

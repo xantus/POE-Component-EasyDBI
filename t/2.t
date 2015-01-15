@@ -8,16 +8,13 @@ use Test::More tests => 18;
 #use Carp;
 #$SIG{__WARN__} = \&Carp::cluck;
 
+use Test::Requires 'DBD::SQLite';
+
 BEGIN {
 	use_ok( 'POE' ); # 1
 	use_ok( 'POE::Component::EasyDBI' ); # 2
 	use_ok( 'POE::Component::EasyDBI::SubProcess' ); # 3
 };
-
-SKIP: {
-	eval "use DBD::SQLite";
-	my $have_module = ($@) ? 0 : 1;
-	skip "DBD::SQLite not installed", 15 unless $have_module;
 
 	POE::Session->create(
 #		options => { trace => 1},
@@ -325,5 +322,4 @@ SKIP: {
 	
 	POE::Kernel->run();
 
-};
 #########################

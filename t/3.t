@@ -8,6 +8,8 @@ use Test::More tests => 17;
 #use Carp;
 #$SIG{__WARN__} = \&Carp::cluck;
 
+use Test::Requires 'DBD::SQLite';
+
 BEGIN {
 	use_ok( 'POE' ); # 1
 	use_ok( 'POE::Component::EasyDBI' ); # 2
@@ -15,10 +17,6 @@ BEGIN {
 };
 
 
-SKIP: {
-	eval "use DBD::SQLite";
-	my $have_module = ($@) ? 0 : 1;
-	skip "DBD::SQLite not installed", 14 unless $have_module;
     my $ezdbi;
 
 	POE::Session->create(
@@ -314,8 +312,6 @@ SKIP: {
 	);
 	
 	POE::Kernel->run();
-
-};
 
 package AnonCallback;
 
