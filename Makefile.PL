@@ -3,6 +3,8 @@ use ExtUtils::MakeMaker;
 # See lib/ExtUtils/MakeMaker.pm for details of how to influence
 # the contents of the Makefile that is written.
 
+my $eumm_version = eval $ExtUtils::MakeMaker::VERSION;
+
 WriteMakefile(
     'NAME'         => 'POE::Component::EasyDBI',
     'VERSION_FROM' => 'lib/POE/Component/EasyDBI.pm', # finds $VERSION
@@ -53,4 +55,12 @@ WriteMakefile(
           )
         : ()
     ),
+    $eumm_version >= 6.64  # perl 5.18
+    ?
+      (
+        TEST_REQUIRES => {
+                'Test::More' => 0,
+            },
+      )
+    : (),
 );
