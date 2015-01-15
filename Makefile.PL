@@ -60,7 +60,7 @@ WriteMakefile(
                     recommends => {
                         'DBD::AnyData' => 0,
                         'DBD::SQLite' => 0,
-                        'Time::StopWatch' => 0,
+                        'Time::Stopwatch' => 0,
                     },
                 },
                 develop => {
@@ -69,7 +69,7 @@ WriteMakefile(
                         # Contributors must run the whole testsuite
                         'DBD::AnyData' => 0,
                         'DBD::SQLite' => 0,
-                        'Time::StopWatch' => 0,
+                        'Time::Stopwatch' => 0,
                     },
                 },
             },
