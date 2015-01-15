@@ -43,7 +43,30 @@ WriteMakefile(
                         url  => 'https://github.com/gps4net/POE-Component-EasyDBI.git',
                         web  => 'https://github.com/gps4net/POE-Component-EasyDBI'
                     }
-                }
+                },
+                prereqs => {
+                    test => {
+                        # This is redundant with TEST_REQUIRES, but will
+                        # also work with EUMM 6.46 to 6.63
+                        requires => {
+                            'Test::More' => 0,
+                        },
+                        recommends => {
+                            'DBD::AnyData' => 0,
+                            'DBD::SQLite' => 0,
+                            'Time::StopWatch' => 0,
+                        },
+                    },
+                    develop => {
+                        requires => {
+                            'CPAN::Meta' => '2.143240', # latest
+                            # Contributors must run the whole testsuite
+                            'DBD::AnyData' => 0,
+                            'DBD::SQLite' => 0,
+                            'Time::StopWatch' => 0,
+                        },
+                    },
+                },
             },
           )
         : $] >= 5.005
