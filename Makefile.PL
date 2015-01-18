@@ -56,6 +56,7 @@ WriteMakefile(
                     # also work with EUMM 6.46 to 6.63
                     requires => {
                         'Test::More' => 0,
+                        'Test::Requires' => '0.08',
                     },
                     recommends => {
                         'DBD::AnyData' => 0,
@@ -80,6 +81,7 @@ WriteMakefile(
     (
         TEST_REQUIRES => {
             'Test::More' => 0,
+            'Test::Requires' => '0.08',
         },
     )x!! ($eumm_version >= 6.64),
 );
