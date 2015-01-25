@@ -44,6 +44,7 @@ David Davis <xantus@cpan.org>
 - Apocalypse <apocal@cpan.org>
 - Chris Williams <chris@bingosnet.co.uk>
 - Andy Grundman <andy@hybridized.org>
+- Olivier Mengué <dolmen@cpan.org>
 - Stephan Jauernick <stephan@stejau.de>
 
 # COPYRIGHT AND LICENCE
