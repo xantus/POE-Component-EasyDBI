@@ -39,11 +39,12 @@ Optional:
 
 David Davis <xantus@cpan.org>
 
-# CREDITS
+# CONTRIBUTORS
 
 - Apocalypse <apocal@cpan.org>
 - Chris Williams <chris@bingosnet.co.uk>
 - Andy Grundman <andy@hybridized.org>
+- Gelu Lupaș <gvl@cpan.org>
 - Olivier Mengué <dolmen@cpan.org>
 - Stephan Jauernick <stephan@stejau.de>
 

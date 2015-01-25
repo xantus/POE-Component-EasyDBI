@@ -1007,6 +1007,8 @@ sub DESTROY {
 
 __END__
 
+=encoding utf8
+
 =head1 NAME
 
 POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls in POE
@@ -2237,11 +2239,13 @@ This will shutdown EasyDBI.
 
 This module is very picky about capitalization!
 
-All of the options are in lowercase.  Query types can be in ALL-CAPS or lowercase.
+All of the options are in lowercase. Query types can be in ALL-CAPS or lowercase.
 
 This module will try to keep the SubProcess alive.
 if it dies, it will open it again for a max of 5 retries by
 default, but you can override this behavior by using L<max_retries>
+
+Please rate this module. L<http://cpanratings.perl.org/rate/?distribution=POE-Component-EasyDBI>
 
 =head2 EXPORT
 
@@ -2262,10 +2266,33 @@ David Davis E<lt>xantus@cpan.orgE<gt>
 
 =head1 CREDITS
 
-Apocalypse E<lt>apocal@cpan.orgE<gt> for L<POE::Component::SimpleDBI>, and the
-alternate fork.
+=over 4
 
-Please rate this module. L<http://cpanratings.perl.org/rate/?distribution=POE-Component-EasyDBI>
+=item *
+
+Apocalypse <apocal@cpan.org>
+
+=item *
+
+Chris Williams <chris@bingosnet.co.uk>
+
+=item *
+
+Andy Grundman <andy@hybridized.org>
+
+=item *
+
+Gelu Lupaș <gvl@cpan.org>
+
+=item *
+
+Olivier Mengué <dolmen@cpan.org>
+
+=item *
+
+Stephan Jauernick <stephan@stejau.de>
+
+=back
 
 =head1 COPYRIGHT AND LICENSE
 
