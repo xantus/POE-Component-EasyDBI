@@ -1,6 +1,6 @@
 Revision history for POE::Component::EasyDBI.
 
-1.24
+1.25
     - Fix synopsis RT #27863
     - Add method action RT #68497, document it
     - Update documentation
