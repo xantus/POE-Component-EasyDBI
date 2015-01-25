@@ -4,6 +4,10 @@ Revision history for POE::Component::EasyDBI.
     - Fix synopsis RT #27863
     - Add method action RT #68497, document it
     - Update documentation
+    - Use Test::Requires to simplify code (dolmen)
+    - Add full prereqs (dolmen)
+    - Refactor and add $VERSION check for each EUMM option (dolmen)
+    - Repo fixes, makefile cleanup (dolmen)
 
 1.24
     - Updated EasyDBI.pm to properly handle the case where the sending session
