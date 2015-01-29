@@ -1,4 +1,5 @@
 META.*
+!META.json
 MYMETA.*
 Makefile
 inc/
@@ -7,5 +8,6 @@ blib/
 *.bak
 *~
 .*
-/POE-Component-EasyDBI-*
+.mailmap
 !.gitignore
+/POE-Component-EasyDBI-*

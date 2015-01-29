@@ -8,12 +8,13 @@ use Test::More tests => 16;
 #use Carp;
 #$SIG{__WARN__} = \&Carp::cluck;
 
-use Test::Requires 'DBD::AnyData';
+use Test::Requires 'DBD::SQLite';
+use Test::Requires 'Data::Dumper';
 
 BEGIN {
-	use_ok( 'POE' ); # 1
-	use_ok( 'POE::Component::EasyDBI' ); # 2
-	use_ok( 'POE::Component::EasyDBI::SubProcess' ); # 3
+	use_ok('POE'); # 1
+	use_ok('POE::Component::EasyDBI'); # 2
+	use_ok('POE::Component::EasyDBI::SubProcess'); # 3
 };
 
 POE::Session->create(
@@ -22,13 +23,16 @@ POE::Session->create(
 			$_[KERNEL]->alias_set('test');
 			POE::Component::EasyDBI->spawn(
 				alias => 'db',
-				dsn => 'dbi:AnyData(RaiseError=>1):',
+				dsn => 'dbi:SQLite::memory:',
 				no_cache => 1, # don't use cached queries with DBD::AnyData
 				username => '',
 				password => '',
+				options => {
+					RaiseError => 1
+				},
 				connected => [ $_[SESSION]->ID, 'connected' ],
 				connect_error => [ $_[SESSION]->ID, 'error' ],
-#				alt_fork => 1,
+				# alt_fork => 1,
 			);
 			pass("component_started"); # 4
 			# shouldnt take more than 30 seconds to finish
@@ -46,9 +50,9 @@ POE::Session->create(
 		},
 		connected => sub {
 			pass("connected"); # 5
-			$_[KERNEL]->post(db => func => {
-				args => [ 'test', 'CSV', ["id,foo,bar"], 'ad_import' ],
-				event => $_[SESSION]->postback('table_created'),
+			$_[KERNEL]->post(db => do => {
+				sql => 'CREATE TABLE test (id INT, foo TEXT, bar TEXT)',
+				event => 'table_created',
 			});
 			$_[KERNEL]->post(db => do => {
 				sql => 'CREATE TABLE test2 (id INT, foo TEXT, bar TEXT)',
@@ -69,14 +73,14 @@ POE::Session->create(
 					{ id => 1, foo => 123456, bar => 'a quick brown fox' },
 					{ id => 2, foo => 7891011, bar => time() },
 				],
-				event => '_no_event',
+				event => 'hash',
 			});
 
 			# old hash way, but still supported
 			$_[KERNEL]->post(db => insert => {
 				table => 'test2',
 				hash => { id => 2, foo => 7891011, bar => time() },
-				event => 'hash',
+				event => '_no_event',
 			});
 		},
 		hash => sub {
@@ -157,16 +161,16 @@ POE::Session->create(
 			}
 			pass("do"); # 11
 			$_[KERNEL]->post(db => quote => {
-#				method => 'quote',
+				method => 'quote',
 				sql => '\'blah"',
-#				args => [ '\'blah"' ],
+				args => [ '\'blah"' ],
 				event => 'keyvalhash',
 			});
 		},
 		keyvalhash => sub {
 			$_[ARG0]->{error} = "incorrect result"
 				unless (defined($_[ARG0]->{result})
-				&& $_[ARG0]->{result} eq '\'\\\'blah"\''
+				&& $_[ARG0]->{result} eq qq~\'\'\'blah"\'~
 				&& !defined($_[ARG0]->{error}));
 
 			if (defined($_[ARG0]->{error})) {
