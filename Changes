@@ -1,10 +1,13 @@
 Revision history for POE::Component::EasyDBI.
 
-1.26 Thu Jan 30 2015
+1.27 Thu Jan 30 2015
+    - Updated prereqs
+
+1.26 Thu Jan 29 2015
     - Fixed changelog, added dates
     - Switched to Minilla
     - Modified tests to use DBD::SQLite instead of DBD::AnyData
-    - Removed DBD::AnyData from prereqs as it fails many tests
+    - Removed DBD::AnyData from test prereqs as it fails many tests
 
 1.25 Sun Jan 25 2015
     - Fix synopsis RT #27863

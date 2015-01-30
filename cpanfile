@@ -2,9 +2,10 @@ requires 'perl', '5.00600';
 requires 'strict';
 requires 'warnings';
 requires 'Carp';
-requires 'POSIX';
-requires 'POE', '0.3101';
+requires 'Scalar::Util';
+requires 'Params::Util';
 requires 'DBI', '1.38';
+requires 'POE', '0.3101';
 requires 'Error', '0.15';
 
 on configure => sub {
