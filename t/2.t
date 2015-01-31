@@ -1,6 +1,6 @@
 # -*- perl -*-
-# Before `make install' is performed this script should be runnable with
-# `make test'. After `make install' it should work as `perl 1.t'
+# Before `Build install' is performed this script should be runnable with
+# `Build test'. After `Build install' it should work as `perl 1.t'
 # vim: syntax=perl ts=4
 #########################
 
@@ -11,13 +11,13 @@ use Test::More tests => 18;
 use Test::Requires 'DBD::SQLite';
 
 BEGIN {
-	use_ok( 'POE' ); # 1
-	use_ok( 'POE::Component::EasyDBI' ); # 2
-	use_ok( 'POE::Component::EasyDBI::SubProcess' ); # 3
+	use_ok('POE'); # 1
+	use_ok('POE::Component::EasyDBI'); # 2
+	use_ok('POE::Component::EasyDBI::SubProcess'); # 3
 };
 
 POE::Session->create(
-#	options => { trace => 1},
+	# options => { trace => 1},
 	inline_states => {
 		_start => sub {
 			$_[KERNEL]->alias_set('test');
@@ -30,7 +30,7 @@ POE::Session->create(
 				password => '',
 				connected => [ $_[SESSION]->ID, 'connected' ],
 				connect_error => [ $_[SESSION]->ID, 'error' ],
-#				alt_fork => 1,
+				# alt_fork => 1,
 				stopwatch => ($@) ? 0 : 1,
 			);
 			pass("component_started"); # 4
@@ -53,7 +53,7 @@ POE::Session->create(
 				begin_work => 1,
 				sql => 'CREATE TABLE test (id INT, foo TEXT, bar TEXT)',
 				commit => 1,
-				#event => $_[SESSION]->postback('table_created'),
+				# event => $_[SESSION]->postback('table_created'),
 				event => 'table_created',
 			});
 		},

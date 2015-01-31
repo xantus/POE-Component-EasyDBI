@@ -1,6 +1,6 @@
 # -*- perl -*-
-# Before `make install' is performed this script should be runnable with
-# `make test'. After `make install' it should work as `perl 1.t'
+# Before `Build install' is performed this script should be runnable with
+# `Build test'. After `Build install' it should work as `perl 1.t'
 # vim: syntax=perl ts=4
 #########################
 
