@@ -32,8 +32,8 @@ sub main {
 	select(STDOUT); $|++;
 	select(STDERR);	$|++;
 
-    $SIG{__WARN__} = 'DEFAULT';
-    $SIG{__DIE__} = 'DEFAULT';
+	$SIG{__WARN__} = 'DEFAULT';
+	$SIG{__DIE__} = 'DEFAULT';
 
 	my $self;
 	# check for alternate fork
@@ -480,11 +480,11 @@ sub db_single {
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
+					$sth->execute( @{ $data->{placeholders} } );
 				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# Actually do the query!
@@ -500,7 +500,7 @@ sub db_single {
 				die $sth->errstr;
 			};
 		
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
@@ -592,7 +592,7 @@ sub db_insert {
 			} else {
 				# Execute the query
 				try {
-                    $rows += $sth->execute( @{ $data->{placeholders} } );
+					$rows += $sth->execute( @{ $data->{placeholders} } );
 				} catch {
 					if (defined($sth->errstr)) {
 						die $sth->errstr;
@@ -600,7 +600,7 @@ sub db_insert {
 						die "error when trying to execute bind of placeholders in insert: $_[0]";
 					}
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 		} catch {
 			my $e = shift;
@@ -641,8 +641,8 @@ sub db_insert {
 					}
 				} elsif ($dsn =~ m/dbi:oracle/i) {
 					$qry = "SELECT $l->{field} FROM $l->{table}";
-                } elsif ($dsn =~ /dbi:sqlite/i) {
-                    $self->{output}->{insert_id} = $self->{dbh}->func('last_insert_rowid');
+				} elsif ($dsn =~ /dbi:sqlite/i) {
+					$self->{output}->{insert_id} = $self->{dbh}->func('last_insert_rowid');
 				} else {
 					die "EasyDBI doesn't know how to handle a last_insert_id with your dbi, contact the author.";
 				}
@@ -650,20 +650,20 @@ sub db_insert {
 				# they are supplying thier own query
 				$qry = $data->{last_insert_id};
 			}
-            
+
 			if (defined($sth)) {
 				$sth->finish();
 			}
-            
-            if ($qry) {
-    			try {
-	    			$self->{output}->{insert_id} = $self->{dbh}->selectrow_array($qry);
-			} catch {
-			    	die $sth->error;
-    			};
+
+			if ($qry) {
+				try {
+					$self->{output}->{insert_id} = $self->{dbh}->selectrow_array($qry);
+				} catch {
+					die $sth->error;
+				};
 			
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
-            }
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			}
 		} catch {
 			# special case, insert was ok, but last_insert_id errored
 			$self->{output}->{error} = shift;
@@ -722,11 +722,11 @@ sub db_do {
 			} else {
 				# Execute the query
 				try {
-                    $rows += $sth->execute( @{ $data->{placeholders} } );
+					$rows += $sth->execute( @{ $data->{placeholders} } );
 				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
@@ -796,11 +796,11 @@ sub db_arrayhash {
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
+					$sth->execute( @{ $data->{placeholders} } );
 				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 	#		my $newdata;
@@ -837,7 +837,7 @@ sub db_arrayhash {
 			};
 		
 			# XXX is dbh->err the same as sth->err?
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -878,7 +878,7 @@ sub db_hashhash {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -910,11 +910,11 @@ sub db_hashhash {
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
+					$sth->execute( @{ $data->{placeholders} } );
 				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# The result hash
@@ -965,13 +965,13 @@ sub db_hashhash {
 					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
 						# Make output include the results
 						$self->{output} = {
-                            rows => $rows,
-                            result => $result,
-                            id => $data->{id},
-                            cols => [ @cols ],
-                            chunked => $data->{chunked},
-                            primary_key => $data->{primary_key}
-                        };
+							rows => $rows,
+							result => $result,
+							id => $data->{id},
+							cols => [ @cols ],
+							chunked => $data->{chunked},
+							primary_key => $data->{primary_key}
+						};
 					}
 				}
 				# in the case that our rows == chunk
@@ -981,7 +981,7 @@ sub db_hashhash {
 				die $sth->errstr;
 			};
 			
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -1022,7 +1022,7 @@ sub db_hasharray {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1054,11 +1054,11 @@ sub db_hasharray {
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
+					$sth->execute( @{ $data->{placeholders} } );
 				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 
 			# The result hash
@@ -1111,7 +1111,7 @@ sub db_hasharray {
 				die $sth->errstr;
 			};
 		
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -1152,7 +1152,7 @@ sub db_array {
 	# Variables we use
 	my $sth = undef;
 	my $result = [];
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1182,11 +1182,11 @@ sub db_array {
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
+					$sth->execute( @{ $data->{placeholders} } );
 				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# The result hash
@@ -1194,7 +1194,7 @@ sub db_array {
 			
 			# Actually do the query!
 			try {
-			    # There are warnings when joining a NULL field, which is undef
+				# There are warnings when joining a NULL field, which is undef
 				no warnings;
 
 				while ( my @row = $sth->fetchrow_array() ) {
@@ -1223,7 +1223,7 @@ sub db_array {
 				#die $sth->errstr;
 			};
 			
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -1264,7 +1264,7 @@ sub db_arrayarray {
 	# Variables we use
 	my $sth = undef;
 	my $result = [];
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1294,11 +1294,11 @@ sub db_arrayarray {
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
+					$sth->execute( @{ $data->{placeholders} } );
 				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# The result hash
@@ -1329,7 +1329,7 @@ sub db_arrayarray {
 				#die $sth->errstr;
 			};
 			
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -1371,7 +1371,7 @@ sub db_hash {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1401,11 +1401,11 @@ sub db_hash {
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
+					$sth->execute( @{ $data->{placeholders} } );
 				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# The result hash
@@ -1417,7 +1417,7 @@ sub db_hash {
 				my @row = $sth->fetchrow_array();
 				
 				if (@row) {
-                    $rows = @row;
+					$rows = @row;
 					for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
 						$result->{$sth->{NAME}->[$i]} = $row[$i];
 					}
@@ -1427,7 +1427,7 @@ sub db_hash {
 				die $sth->errstr;
 			};
 			
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
@@ -1464,7 +1464,7 @@ sub db_keyvalhash {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1494,11 +1494,11 @@ sub db_keyvalhash {
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
+					$sth->execute( @{ $data->{placeholders} } );
 				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 	
 			# Actually do the query!
@@ -1527,7 +1527,7 @@ sub db_keyvalhash {
 				die $sth->errstr;
 			};
 			
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 	
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
