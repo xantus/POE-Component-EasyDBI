@@ -6,7 +6,7 @@ requires 'Scalar::Util';
 requires 'Params::Util';
 requires 'DBI', '1.38';
 requires 'POE', '0.3101';
-requires 'Error', '0.15';
+requires 'Try::Tiny';
 
 on configure => sub {
 	requires 'Module::Build';

@@ -47,10 +47,10 @@
          "requires" : {
             "Carp" : "0",
             "DBI" : "1.38",
-            "Error" : "0.15",
             "POE" : "0.3101",
             "Params::Util" : "0",
             "Scalar::Util" : "0",
+            "Try::Tiny" : "0",
             "perl" : "5.00600",
             "strict" : "0",
             "warnings" : "0"
