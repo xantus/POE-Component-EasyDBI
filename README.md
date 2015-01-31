@@ -187,12 +187,12 @@ This constructor accepts 6 different options.
 - `no_cache`
 
     Optional. If true, prepare\_cached won't be called on queries.  Use this when
-    using [DBD::AnyData](https://metacpan.org/pod/DBD::AnyData).  This can be overridden with each query.
+    using [DBD::AnyData](https://metacpan.org/pod/DBD::AnyData). This can be overridden with each query.
 
 - `alt_fork`
 
     Optional. If 1, an alternate type of fork will be used for the database
-    process.  This usually results in lower memory use of the child.
+    process. This usually results in lower memory use of the child.
     You can also specify alt\_fork => '/path/to/perl' if you are using POE inside of
     another app like irssi.
     \*Experimental, and WILL NOT work on Windows Platforms\*
@@ -200,7 +200,7 @@ This constructor accepts 6 different options.
 - `stopwatch`
 
     Optional. If true, [Time::Stopwatch](https://metacpan.org/pod/Time::Stopwatch) will be loaded and tied to the 'stopwatch'
-    key on every query.  Check the stopwatch key in the return event to measure how
+    key on every query. Check the stopwatch key in the return event to measure how
     long a query took.
 
 ## Events
@@ -606,7 +606,7 @@ or
                     { id => 3, username => 'baz' },
                 ],
                 table => 'users',
-                event => 'done',
+                event => 'insert_handler',
             },
         );
 
@@ -639,6 +639,43 @@ or
             sql             =>  SQL sent
             table           =>  table from insert
         }
+
+- `combo`
+
+        This is for combining multiple SQL statements in one call.
+
+        Here's an example of how to trigger this event:
+
+        $_[KERNEL]->post('EasyDBI',
+            combo => {
+                queries => [
+                    {
+                        do => {
+                            sql => 'CREATE TABLE test (id INT, foo TEXT, bar TEXT)',
+                        }
+                    },
+                    {
+                        insert => {
+                            table => 'test',
+                            insert => [
+                                { id => 1, foo => 123456, bar => 'a quick brown fox' },
+                                { id => 2, foo => 7891011, bar => time() },
+                            ],
+                        },
+                    },
+                    {
+                        insert => {
+                            table => 'test',
+                            hash => { id => 2, foo => 7891011, bar => time() },
+                        },
+                    },
+                ],
+                event => 'combo_handler',
+            }
+        );
+
+        The Success Event handler will get a hash for each of the queries in
+        ARG0..$#. See the respective hash structure for each of the single events.
 
 - `func`
 

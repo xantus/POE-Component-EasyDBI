@@ -1,6 +1,10 @@
 Revision history for POE::Component::EasyDBI.
 
-1.27 Thu Jan 30 2015
+1.28
+    - Update documentation
+    - Revert DBD::AnyData test, make it optional
+
+1.27 Fri Jan 30 2015
     - Updated prereqs
 
 1.26 Thu Jan 29 2015
