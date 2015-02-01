@@ -4,7 +4,7 @@
 # vim: syntax=perl ts=4
 #########################
 
-use Test::More tests => 16;
+use Test::More skip_all => 'DBD::AnyData is broken';
 #use Carp;
 #$SIG{__WARN__} = \&Carp::cluck;
 

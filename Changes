@@ -2,7 +2,8 @@ Revision history for POE::Component::EasyDBI.
 
 1.28
     - Update documentation
-    - Revert DBD::AnyData test, make it optional
+    - Revert DBD::AnyData tests and skip them
+    - Switch from Error to Try::Tiny (Olivier Mengué)
 
 1.27 Fri Jan 30 2015
     - Updated prereqs

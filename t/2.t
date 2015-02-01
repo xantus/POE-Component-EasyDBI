@@ -182,9 +182,9 @@ POE::Session->create(
 			}
 			pass("commit"); # 12
 #			$_[KERNEL]->post(db => quote => {
-#	#			method => 'quote',
+#				method => 'quote',
 #				sql => '\'%blah"',
-#	#			args => [ '\'%blah"' ],
+#				args => [ '\'%blah"' ],
 #				event => 'keyvalhash',
 #			});
 #		},
