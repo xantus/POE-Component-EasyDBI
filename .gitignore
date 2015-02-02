@@ -8,6 +8,5 @@ blib/
 *.bak
 *~
 .*
-.mailmap
 !.gitignore
 /POE-Component-EasyDBI-*
