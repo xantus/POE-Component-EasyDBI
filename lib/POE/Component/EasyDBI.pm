@@ -4,7 +4,7 @@ use strict;
 use warnings FATAL =>'all';
 
 # Initialize our version
-our $VERSION = '1.24';
+our $VERSION = '1.28';
 
 # Import what we need from the POE namespace
 use POE;
@@ -601,7 +601,7 @@ sub check_queue {
     # Copy what we need from the top of the queue
     my %queue;
     foreach (
-        qw( id sql action placeholders no_cache begin_work commit )
+        qw(id sql action placeholders no_cache begin_work commit method)
         ,@{$heap->{action_params}->{$heap->{queue}->[0]->{action}}}
     ) {
         next unless (defined($heap->{queue}->[0]->{$_}));
@@ -1007,13 +1007,15 @@ sub DESTROY {
 
 __END__
 
+=encoding utf8
+
 =head1 NAME
 
 POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls in POE
 
 =head1 SYNOPSIS
 
-    use POE qw( Component::EasyDBI );
+    use POE qw(Component::EasyDBI);
 
     # Set up the DBI
     POE::Component::EasyDBI->spawn( # or new(), witch returns an obj
@@ -1030,15 +1032,15 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
     POE::Session->create(
         inline_states => {
             _start => sub {
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     do => {
-                        sql => 'CREATE TABLE users (id INT, username VARCHAR(100)',
+                        sql => 'CREATE TABLE users (id INT, username VARCHAR(100))',
                         event => 'table_created',
                     }
                 );
             },
             table_created => sub {
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     insert => {
                         # multiple inserts
                         insert => [
@@ -1046,15 +1048,24 @@ POE::Component::EasyDBI - Perl extension for asynchronous non-blocking DBI calls
                             { id => 2, username => 'bar' },
                             { id => 3, username => 'baz' },
                         ],
+                        table => 'users',
+                        event => 'done',
                     },
                 );
-                $_[KERNEL]->post( 'EasyDBI' => 'commit' );
-                $_[KERNEL]->post( 'EasyDBI' => 'shutdown' );
+                $_[KERNEL]->post('EasyDBI',
+                    commit => {
+                        event => 'done'
+                    }
+                );
+                $_[KERNEL]->post('EasyDBI' => 'shutdown');
             },
+            done => sub {
+                my $result = $_[ARG0];
+            }
         },
     );
 
-    $poe_kernel->run();
+    POE::Kernel->run();
 
 =head1 ABSTRACT
 
@@ -1076,9 +1087,9 @@ The standard way to use this module is to do this:
     use POE;
     use POE::Component::EasyDBI;
 
-    POE::Component::EasyDBI->spawn( ... );
+    POE::Component::EasyDBI->spawn(...);
 
-    POE::Session->create( ... );
+    POE::Session->create(...);
 
     POE::Kernel->run();
 
@@ -1189,12 +1200,12 @@ DON'T resend the query, it will be processed.
 =item C<no_cache>
 
 Optional. If true, prepare_cached won't be called on queries.  Use this when
-using L<DBD::AnyData>.  This can be overridden with each query.
+using L<DBD::AnyData>. This can be overridden with each query.
 
 =item C<alt_fork>
 
 Optional. If 1, an alternate type of fork will be used for the database
-process.  This usually results in lower memory use of the child.
+process. This usually results in lower memory use of the child.
 You can also specify alt_fork => '/path/to/perl' if you are using POE inside of
 another app like irssi.
 *Experimental, and WILL NOT work on Windows Platforms*
@@ -1202,7 +1213,7 @@ another app like irssi.
 =item C<stopwatch>
 
 Optional. If true, L<Time::Stopwatch> will be loaded and tied to the 'stopwatch'
-key on every query.  Check the stopwatch key in the return event to measure how
+key on every query. Check the stopwatch key in the return event to measure how
 long a query took.
 
 =back
@@ -1220,7 +1231,7 @@ You can use a postback, or callback (See POE::Session)
 
 For example:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         quote => {
                 sql => 'foo$*@%%sdkf"""',
                 event => 'quoted_handler',
@@ -1230,7 +1241,7 @@ For example:
 
 or
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         quote => {
                 sql => 'foo$*@%%sdkf"""',
                 event => $_[SESSION]->postback("quoted_handler"),
@@ -1247,11 +1258,11 @@ or
 
     Internally, it does this:
 
-    return $dbh->quote( $SQL );
+    return $dbh->quote($SQL);
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         quote => {
             sql => 'foo$*@%%sdkf"""',
             event => 'quoted_handler',
@@ -1270,16 +1281,16 @@ or
 
     Internally, it does this:
 
-    $sth = $dbh->prepare_cached( $sql );
-    $rows_affected = $sth->execute( $placeholders );
+    $sth = $dbh->prepare_cached($sql);
+    $rows_affected = $sth->execute($placeholders);
     return $rows_affected;
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         do => {
             sql => 'DELETE FROM FooTable WHERE ID = ?',
-            placeholders => [ qw( 38 ) ],
+            placeholders => [qw(38)],
             event => 'deleted_handler',
         }
     );
@@ -1299,15 +1310,15 @@ or
 
     Internally, it does this:
 
-    $sth = $dbh->prepare_cached( $sql );
-    $sth->bind_columns( %result );
-    $sth->execute( $placeholders );
+    $sth = $dbh->prepare_cached($sql);
+    $sth->bind_columns(%result);
+    $sth->execute($placeholders);
     $sth->fetch();
     return %result;
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         single => {
             sql => 'Select test_id from FooTable',
             event => 'result_handler',
@@ -1328,27 +1339,27 @@ or
 
     Internally, it does this:
 
-    $sth = $dbh->prepare_cached( $SQL );
-    $sth->execute( $PLACEHOLDERS );
-    while ( $row = $sth->fetchrow_hashref() ) {
+    $sth = $dbh->prepare_cached($SQL);
+    $sth->execute($PLACEHOLDERS);
+    while ($row = $sth->fetchrow_hashref()) {
         push( @results,{ %{ $row } } );
     }
     return @results;
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         arrayhash => {
             sql => 'SELECT this, that FROM my_table WHERE my_id = ?',
             event => 'result_handler',
-            placeholders => [ qw( 2021 ) ],
+            placeholders => [qw(2021)],
         }
     );
 
     The Success Event handler will get a hash in ARG0:
     {
         sql             =>  SQL sent
-        result          =>  Array of hashes of the rows ( array of fetchrow_hashref's )
+        result          =>  Array of hashes of the rows (array of fetchrow_hashref's)
         rows            =>  Scalar value of rows
         placeholders    =>  Original placeholders
         cols            =>  An array of the cols in query order
@@ -1370,14 +1381,14 @@ or
         $primary_key = $sth->{NAME}->[($primary_key-1)];
     }
     
-    for $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
+    for $i (0..$sth->{NUM_OF_FIELDS}-1) {
         $col{$sth->{NAME}->[$i]} = $i;
         push(@cols, $sth->{NAME}->[$i]);
     }
 
-    $sth = $dbh->prepare_cached( $SQL );
-    $sth->execute( $PLACEHOLDERS );
-    while ( @row = $sth->fetch_array() ) {
+    $sth = $dbh->prepare_cached($SQL);
+    $sth->execute($PLACEHOLDERS);
+    while (@row = $sth->fetch_array()) {
         foreach $c (@cols) {
             $results{$row[$col{$primary_key}]}{$c} = $row[$col{$c}];
         }
@@ -1386,11 +1397,11 @@ or
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         hashhash => {
             sql => 'SELECT this, that FROM my_table WHERE my_id = ?',
             event => 'result_handler',
-            placeholders => [ qw( 2021 ) ],
+            placeholders => [qw(2021)],
             primary_key => "2",  # making 'that' the primary key
         }
     );
@@ -1419,25 +1430,25 @@ or
         $primary_key = $sth->{NAME}->[($primary_key-1)];
     }
     
-    for $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
+    for $i (0..$sth->{NUM_OF_FIELDS}-1) {
         $col{$sth->{NAME}->[$i]} = $i;
         push(@cols, $sth->{NAME}->[$i]);
     }
     
-    $sth = $dbh->prepare_cached( $SQL );
-    $sth->execute( $PLACEHOLDERS );
-    while ( @row = $sth->fetch_array() ) {
+    $sth = $dbh->prepare_cached($SQL);
+    $sth->execute($PLACEHOLDERS);
+    while (@row = $sth->fetch_array()) {
         push(@{ $results{$row[$col{$primary_key}}]} }, @row);
     }
     return %results;
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         hasharray => {
             sql => 'SELECT this, that FROM my_table WHERE my_id = ?',
             event => 'result_handler',
-            placeholders => [ qw( 2021 ) ],
+            placeholders => [qw(2021)],
             primary_key => "1",  # making 'this' the primary key
         }
     );
@@ -1459,24 +1470,24 @@ or
 
     Internally, it does this:
 
-    $sth = $dbh->prepare_cached( $SQL );
-    $sth->execute( $PLACEHOLDERS );
-    while ( @row = $sth->fetchrow_array() ) {
+    $sth = $dbh->prepare_cached($SQL);
+    $sth->execute($PLACEHOLDERS);
+    while (@row = $sth->fetchrow_array()) {
         if ($separator) {
-            push( @results,join($separator,@row) );
+            push(@results, join($separator,@row));
         } else {
-            push( @results,join(',',@row) );
+            push(@results, join(',',@row));
         }
     }
     return @results;
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         array => {
             sql => 'SELECT this FROM my_table WHERE my_id = ?',
             event => 'result_handler',
-            placeholders => [ qw( 2021 ) ],
+            placeholders => [qw(2021)],
             separator => ',', # default separator
         }
     );
@@ -1497,20 +1508,20 @@ or
 
     Internally, it does this:
 
-    $sth = $dbh->prepare_cached( $SQL );
-    $sth->execute( $PLACEHOLDERS );
-    while ( @row = $sth->fetchrow_array() ) {
+    $sth = $dbh->prepare_cached($SQL);
+    $sth->execute($PLACEHOLDERS);
+    while (@row = $sth->fetchrow_array()) {
         push( @results,\@row );
     }
     return @results;
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         arrayarray => {
             sql => 'SELECT this,that FROM my_table WHERE my_id > ?',
             event => 'result_handler',
-            placeholders => [ qw( 2021 ) ],
+            placeholders => [qw(2021)],
         }
     );
 
@@ -1530,11 +1541,11 @@ or
 
     Internally, it does this:
 
-    $sth = $dbh->prepare_cached( $SQL );
-    $sth->execute( $PLACEHOLDERS );
+    $sth = $dbh->prepare_cached($SQL);
+    $sth->execute($PLACEHOLDERS);
     @row = $sth->fetchrow_array();
     if (@row) {
-        for $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
+        for $i (0..$sth->{NUM_OF_FIELDS}-1) {
             $results{$sth->{NAME}->[$i]} = $row[$i];
         }
     }
@@ -1542,11 +1553,11 @@ or
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         hash => {
             sql => 'SELECT * FROM my_table WHERE my_id = ?',
             event => 'result_handler',
-            placeholders => [ qw( 2021 ) ],
+            placeholders => [qw(2021)],
         }
     );
 
@@ -1565,20 +1576,20 @@ or
 
     Internally, it does this:
 
-    $sth = $dbh->prepare_cached( $SQL );
-    $sth->execute( $PLACEHOLDERS );
-    while ( @row = $sth->fetchrow_array() ) {
+    $sth = $dbh->prepare_cached($SQL);
+    $sth->execute($PLACEHOLDERS);
+    while (@row = $sth->fetchrow_array()) {
         $results{$row[0]} = $row[1];
     }
     return %results;
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         keyvalhash => {
             sql => 'SELECT this, that FROM my_table WHERE my_id = ?',
             event => 'result_handler',
-            placeholders => [ qw( 2021 ) ],
+            placeholders => [qw(2021)],
             primary_key => 1, # uses 'this' as the key
         }
     );
@@ -1597,19 +1608,33 @@ or
 
     Here's an example on how to trigger this event:
 
-    $_[KERNEL]->post( 'EasyDBI',
+    $_[KERNEL]->post('EasyDBI',
         insert => {
             sql => 'INSERT INTO zipcodes (zip,city,state) VALUES (?,?,?)',
-            placeholders => [ '98004', 'Bellevue', 'WA' ],
+            placeholders => ['98004', 'Bellevue', 'WA'],
             event => 'insert_handler',
         }
     );
 
+    a multiple insert:
+
+    $_[KERNEL]->post('EasyDBI',
+        insert => {
+            insert => [
+                { id => 1, username => 'foo' },
+                { id => 2, username => 'bar' },
+                { id => 3, username => 'baz' },
+            ],
+            table => 'users',
+            event => 'insert_handler',
+        },
+    );
+
     also an example to retrieve a last insert id
 
-    $_[KERNEL]->post( 'EasyDBI',
+    $_[KERNEL]->post('EasyDBI',
         insert => {
-            hash => { username => 'test' , pass => 'sUpErSeCrEt', name => 'John' },
+            hash => { username => 'test', pass => 'sUpErSeCrEt', name => 'John' },
             table => 'users',
             last_insert_id => {
                 field => 'user_id', # mysql uses SELECT LAST_INSERT_ID instead
@@ -1622,14 +1647,55 @@ or
 
     The Success Event handler will get a hash in ARG0:
     {
+        action          =>  insert
+        event           =>  result_handler
+        id              =>  queue id
+        insert          =>  original multiple insert hash reference
+        insert_id       =>  insert id if last_insert_id is used
+        last_insert_id  =>  the original hash or scalar sent
+        placeholders    =>  original placeholders
+        rows            =>  number of rows affected
+        result          =>  same as rows
         sql             =>  SQL sent
-        table           =>  Table from insert
-        placeholders    =>  Original placeholders
-        last_insert_id  =>  The original hash or scalar sent
-        insert_id       =>  Insert id if last_insert_id is used
-        rows            =>  Number of rows affected
-        result          =>  Same as rows
+        table           =>  table from insert
     }
+
+=item C<combo>
+
+    This is for combining multiple SQL statements in one call.
+
+    Here's an example of how to trigger this event:
+
+    $_[KERNEL]->post('EasyDBI',
+        combo => {
+            queries => [
+                {
+                    do => {
+                        sql => 'CREATE TABLE test (id INT, foo TEXT, bar TEXT)',
+                    }
+                },
+                {
+                    insert => {
+                        table => 'test',
+                        insert => [
+                            { id => 1, foo => 123456, bar => 'a quick brown fox' },
+                            { id => 2, foo => 7891011, bar => time() },
+                        ],
+                    },
+                },
+                {
+                    insert => {
+                        table => 'test',
+                        hash => { id => 2, foo => 7891011, bar => time() },
+                    },
+                },
+            ],
+            event => 'combo_handler',
+        }
+    );
+
+    The Success Event handler will get a hash for each of the queries in
+    ARG0..$#. See the respective hash structure for each of the single events.
 
 =item C<func>
 
@@ -1641,7 +1707,7 @@ or
 
     Here's an example on how to trigger this event (Using DBD::AnyData):
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         func => {
             args => ['test2','CSV',["id,phrase\n1,foo\n2,bar"],'ad_import'],
             event => 'result_handler',
@@ -1654,6 +1720,35 @@ or
         result          =>  return value
     }
 
+=item C<method>
+
+    This is for calling any method on the $dbh,
+
+    Internally, it does this:
+
+    return $dbh->{method}(@{$args});
+
+    Here's an example on how to trigger this event (Using DBD::SQLite):
+
+    $kernel->post('EasyDBI',
+        method => {
+                method => 'sqlite_table_column_metadata'
+            args => [undef, 'users', 'username'],
+            event => 'result_handler',
+        }
+    );
+
+    The Success Event handler will get a hash in ARG0:
+    {
+        action          =>  method
+        args            =>  original array reference containing the arguments
+        event           =>  result_handler
+        id              =>  queue id
+        method          =>  sqlite_table_column_metadata
+        result          =>  return value
+        session         =>  session id
+    }
+
 =item C<commit>
 
     This is for calling $dbh->commit(), if the driver supports it.
@@ -1664,7 +1759,7 @@ or
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         commit => {
             event => 'result_handler',
         }
@@ -1672,8 +1767,11 @@ or
 
     The Success Event handler will get a hash in ARG0:
     {
-        sql             =>  SQL sent
+        action          =>  commit
+        event           =>  result_handler
+        id              =>  queue id
         result          =>  return value
+        session         =>  session id
     }
 
 =item C<rollback>
@@ -1686,7 +1784,7 @@ or
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         rollback => {
             event => 'result_handler',
         }
@@ -1694,8 +1792,11 @@ or
 
     The Success Event handler will get a hash in ARG0:
     {
-        sql             =>  SQL sent
+        action          =>  rollback
+        event           =>  result_handler
+        id              =>  queue id
         result          =>  return value
+        session         =>  session id
     }
 
 =item C<begin_work>
@@ -1708,7 +1809,7 @@ or
 
     Here's an example on how to trigger this event:
 
-    $kernel->post( 'EasyDBI',
+    $kernel->post('EasyDBI',
         begin_work => {
             event => 'result_handler',
         }
@@ -1716,13 +1817,16 @@ or
 
     The Success Event handler will get a hash in ARG0:
     {
-        sql             =>  SQL sent
+        action          =>  begin_work
+        event           =>  result_handler
+        id              =>  queue id
         result          =>  return value
+        session         =>  session id
     }
 
 =item C<shutdown>
 
-    $kernel->post( 'EasyDBI', 'shutdown' );
+    $kernel->post('EasyDBI', 'shutdown');
 
     This will signal EasyDBI to start the shutdown procedure.
 
@@ -1731,7 +1835,7 @@ or
 
     you can also specify an argument:
 
-    $kernel->post( 'EasyDBI', 'shutdown' => 'NOW' );
+    $kernel->post('EasyDBI', 'shutdown' => 'NOW');
 
     This will signal EasyDBI to shutdown.
 
@@ -1742,7 +1846,7 @@ or
     to propagate POE's queue. If you REALLY want to shut down immediately, do
     this:
 
-    $kernel->call( 'EasyDBI', 'shutdown' => 'NOW' );
+    $kernel->call('EasyDBI', 'shutdown' => 'NOW');
 
     ALL shutdown NOW's send kill 9 to thier children, beware of any 
     transactions that you may be in. Your queries will revert if you are in
@@ -1752,7 +1856,7 @@ or
 
 =head3 Arguments
 
-They are passed in via the $kernel->post( ... );
+They are passed in via the $kernel->post(...);
 
 Note: all query types can be in ALL-CAPS or lowercase but not MiXeD!
 
@@ -1827,10 +1931,10 @@ ONLY used when using C<do> or C<insert>
 You can pass custom keys and data not mentioned above, BUT I suggest using a
 prefix like _ in front of your custom keys.  For example:
 
-    $_[KERNEL->post( 'EasyDBI',
+    $_[KERNEL->post('EasyDBI',
         do => {
             sql => 'DELETE FROM sessions WHERE ip = ?',
-            placeholders => [ $ip ],
+            placeholders => [$ip],
             _ip => $ip,
             _port => $port,
             _filehandle => $fh,
@@ -1879,7 +1983,7 @@ This will shutdown EasyDBI.
 
 =head2 LONG EXAMPLE
 
-    use POE qw( Component::EasyDBI );
+    use POE qw(Component::EasyDBI);
 
     # Set up the DBI
     POE::Component::EasyDBI->spawn(
@@ -1893,10 +1997,10 @@ This will shutdown EasyDBI.
     POE::Session->create(
         inline_states => {
             _start => sub {
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     do => {
                         sql => 'DELETE FROM users WHERE user_id = ?',
-                        placeholders => [ qw( 144 ) ],
+                        placeholders => [qw(144)],
                         event => 'deleted_handler',
                     }
                 );
@@ -1907,40 +2011,40 @@ This will shutdown EasyDBI.
                 # If you select more than one field, you will only get the last one
                 # unless you pass in a separator with what you want the fields seperated by
                 # to get null sperated values, pass in separator => "\0"
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     single => {
                         sql => 'Select user_id,user_login from users where user_id = ?',
                         event => 'single_handler',
-                        placeholders => [ qw( 144 ) ],
+                        placeholders => [qw(144)],
                         separator => ',', #optional!
                     }
                 );
 
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     quote => {
                         sql => 'foo$*@%%sdkf"""',
                         event => 'quote_handler',
                     }
                 );
                 
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     arrayhash => {
                         sql => 'SELECT user_id,user_login from users where logins = ?',
                         event => 'arrayash_handler',
-                        placeholders => [ qw( 53 ) ],
+                        placeholders => [qw(53)],
                     }
                 );
                 
                 my $postback = $_[SESSION]->postback("arrayhash_handler",3,2,1);
                 
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     arrayhash => {
                         sql => 'SELECT user_id,user_login from users',
                         event => $postback,
                     }
                 );
                 
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     arrayarray => {
                         sql => 'SELECT * from locations',
                         event => 'arrayarray_handler',
@@ -1948,7 +2052,7 @@ This will shutdown EasyDBI.
                     }
                 );
 
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     hashhash => {
                         sql => 'SELECT * from locations',
                         event => 'hashhash_handler',
@@ -1956,7 +2060,7 @@ This will shutdown EasyDBI.
                     }
                 );
                 
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     hasharray => {
                         sql => 'SELECT * from locations',
                         event => 'hasharray_handler',
@@ -1965,21 +2069,21 @@ This will shutdown EasyDBI.
                 );
                 
                 # you should use limit 1, it is NOT automaticly added
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     hash => {
                         sql => 'SELECT * from locations LIMIT 1',
                         event => 'hash_handler',
                     }
                 );
                 
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     array => {
                         sql => 'SELECT location_id from locations',
                         event => 'array_handler',
                     }
                 );
                 
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     keyvalhash => {
                         sql => 'SELECT location_id,location_name from locations',
                         event => 'keyvalhash_handler',
@@ -1987,15 +2091,15 @@ This will shutdown EasyDBI.
                     }
                 );
 
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     insert => {
                         sql => 'INSERT INTO zipcodes (zip,city,state) VALUES (?,?,?)',
-                        placeholders => [ '98004', 'Bellevue', 'WA' ],
+                        placeholders => ['98004', 'Bellevue', 'WA'],
                         event => 'insert_handler',
                     }
                 );
 
-                $_[KERNEL]->post( 'EasyDBI',
+                $_[KERNEL]->post('EasyDBI',
                     insert => {
                         # this can also be a array of hashes similar to this
                         hash => { username => 'test' , pass => 'sUpErSeCrEt', name => 'John' },
@@ -2013,14 +2117,14 @@ This will shutdown EasyDBI.
                 # 3 ways to shutdown
 
                 # This will let the existing queries finish, then shutdown
-                $_[KERNEL]->post( 'EasyDBI', 'shutdown' );
+                $_[KERNEL]->post('EasyDBI', 'shutdown');
 
                 # This will terminate when the event traverses
                 # POE's queue and arrives at EasyDBI
-                #$_[KERNEL]->post( 'EasyDBI', shutdown => 'NOW' );
+                #$_[KERNEL]->post('EasyDBI', shutdown => 'NOW');
 
                 # Even QUICKER shutdown :)
-                #$_[KERNEL]->call( 'EasyDBI', shutdown => 'NOW' );
+                #$_[KERNEL]->call('EasyDBI', shutdown => 'NOW');
             },
 
             deleted_handler => \&deleted_handler,
@@ -2054,7 +2158,7 @@ This will shutdown EasyDBI.
     sub single_handler {
         # For SINGLE calls, we receive a scalar
         # $_[ARG0] = {
-        #   SQL => The SQL you sent
+        #   sql => The SQL you sent
         #   result  => scalar
         #   placeholders => The placeholders
         #   action => 'single'
@@ -2172,11 +2276,13 @@ This will shutdown EasyDBI.
 
 This module is very picky about capitalization!
 
-All of the options are in lowercase.  Query types can be in ALL-CAPS or lowercase.
+All of the options are in lowercase. Query types can be in ALL-CAPS or lowercase.
 
 This module will try to keep the SubProcess alive.
 if it dies, it will open it again for a max of 5 retries by
 default, but you can override this behavior by using L<max_retries>
+
+Please rate this module. L<http://cpanratings.perl.org/rate/?distribution=POE-Component-EasyDBI>
 
 =head2 EXPORT
 
@@ -2185,7 +2291,11 @@ Nothing.
 =head1 SEE ALSO
 
 L<DBI>, L<POE>, L<POE::Wheel::Run>, L<POE::Component::DBIAgent>, L<POE::Component::LaDBI>,
-L<POE::Component::SimpleDBI>, L<DBD::AnyData>, L<DBD::SQLite>
+L<POE::Component::SimpleDBI>
+
+L<DBD::AnyData>, L<DBD::SQLite>
+
+L<AnyEvent::DBI>
 
 =head1 AUTHOR
 
@@ -2193,10 +2303,33 @@ David Davis E<lt>xantus@cpan.orgE<gt>
 
 =head1 CREDITS
 
-Apocalypse E<lt>apocal@cpan.orgE<gt> for L<POE::Component::SimpleDBI>, and the
-alternate fork.
+=over 4
 
-Please rate this module. L<http://cpanratings.perl.org/rate/?distribution=POE-Component-EasyDBI>
+=item *
+
+Apocalypse <apocal@cpan.org>
+
+=item *
+
+Chris Williams <chris@bingosnet.co.uk>
+
+=item *
+
+Andy Grundman <andy@hybridized.org>
+
+=item *
+
+Gelu Lupaș <gvl@cpan.org>
+
+=item *
+
+Olivier Mengué <dolmen@cpan.org>
+
+=item *
+
+Stephan Jauernick <stephan@stejau.de>
+
+=back
 
 =head1 COPYRIGHT AND LICENSE
 
