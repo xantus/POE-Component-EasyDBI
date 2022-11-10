@@ -77,9 +77,10 @@
          "web" : "https://github.com/gps4net/POE-Component-EasyDBI"
       }
    },
-   "version" : "1.29",
+   "version" : "1.30",
    "x_authority" : "cpan:XANTUS",
    "x_contributors" : [
+      "Gelu Lupas <ggl@users.noreply.github.com>",
       "Gelu Lupaș <gvl@cpan.org>",
       "Olivier Mengué <dolmen@cpan.org>"
    ],
