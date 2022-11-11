@@ -4,10 +4,9 @@ use strict;
 use warnings FATAL => 'all';
 
 # Initialize our version
-our $VERSION = '1.24';
+our $VERSION = '1.30';
 
-# Use Error.pm's try/catch semantics
-use Error qw( :try );
+use Try::Tiny qw( try catch );
 
 # We pass in data to POE::Filter::Reference
 use POE::Filter::Reference;
@@ -33,8 +32,8 @@ sub main {
 	select(STDOUT); $|++;
 	select(STDERR);	$|++;
 
-    $SIG{__WARN__} = 'DEFAULT';
-    $SIG{__DIE__} = 'DEFAULT';
+	$SIG{__WARN__} = 'DEFAULT';
+	$SIG{__DIE__} = 'DEFAULT';
 
 	my $self;
 	# check for alternate fork
@@ -57,9 +56,9 @@ sub main {
 		$self = __PACKAGE__->new(shift);
 		$self->{filter} = POE::Filter::Reference->new();
 	}
-	
+
 	$self->{0} = $0 = "$0 ".__PACKAGE__;
-	
+
 	$self->{lastpingtime} = time();
 
 	unless (defined($self->{sig_ignore_off})) {
@@ -73,7 +72,7 @@ sub main {
 #	}
 
 	while (!$self->connect()) {	}
-	
+
 	$self->pt("connected at ".localtime());
 
 	return if ($self->{done});
@@ -95,7 +94,7 @@ sub main {
 		# and put the data in the queue
 		my $d = $self->{filter}->get( [ $buffer ] );
 		push(@{$self->{queue}},@$d) if ($d);
-		
+
 		# INPUT STRUCTURE IS:
 		# $d->{action}			= SCALAR	->	WHAT WE SHOULD DO
 		# $d->{sql}				= SCALAR	->	THE ACTUAL SQL
@@ -126,7 +125,7 @@ sub main {
 		$self->{dbh}->disconnect();
 		delete $self->{dbh};
 	}
-	
+
 	# debug
 #	require POE::API::Peek;
 #	my $p = POE::API::Peek->new();
@@ -143,7 +142,7 @@ sub pt {
 
 sub connect {
 	my $self = shift;
-	
+
 	$self->{output} = undef;
 	$self->{error} = undef;
 
@@ -156,7 +155,7 @@ sub connect {
 			# We set some configuration stuff here
 			{
 				((ref($self->{options}) eq 'HASH') ? %{$self->{options}} : ()),
-				
+
 				# quiet!!
 				'PrintError'	=>	0,
 				'PrintWarn'		=>	0,
@@ -173,12 +172,12 @@ sub connect {
 		if (!defined($self->{dbh})) {
 			die "Error Connecting to Database: $DBI::errstr";
 		}
-	} catch Error with {
+	} catch {
 		$self->output( $self->make_error( 'DBI', shift ) );
 	};
 
 	# Catch errors!
-	if ($self->{error} && $self->{no_connect_failures}) {
+	if ($self->{error} && $self->{no_connect_failures} && kill(0, $self->{parent_pid})) {
 		sleep($self->{reconnect_wait}) if ($self->{reconnect_wait});
 		return 0;
 	} elsif ($self->{error}) {
@@ -193,10 +192,10 @@ sub connect {
 #		$self->db_do({ sql => 'BEGIN', id => -1 });
 #		delete $self->{output};
 #	}
-	
+
 	# send connect notice
 	$self->output({ id => 'DBI-CONNECTED' });
-	
+
 	return 1;
 }
 
@@ -204,11 +203,12 @@ sub process {
 	my $self = shift;
 
 	return 0 unless (@{$self->{queue}});
-	
+
 	# Process each data structure
 	foreach my $input (shift(@{$self->{queue}})) {
+		next unless $input->{'action'};
 		$input->{action} = lc($input->{action});
-		
+
 		# Now, we do the actual work depending on what kind of query it was
 		if ($input->{action} eq 'exit') {
 			# Disconnect!
@@ -219,7 +219,7 @@ sub process {
 		my $now = time();
 		my $needping = (($self->{ping_timeout} == 0 or $self->{ping_timeout} > 0)
 			and (($now - $self->{lastpingtime}) >= $self->{ping_timeout})) ? 1 : 0;
-			
+
 		if ($self->{dbh}) {
 # Don't work:
 #			unless ($self->{dbh}->{Active}) {
@@ -262,7 +262,7 @@ sub process {
 			# remove beginning whitespace
 			$input->{sql} =~ s/^\s*//;
 		}
-		
+
 		if ( $input->{action} =~ m/^(func|commit|rollback|begin_work)$/ ) {
 			$input->{method} = $input->{action};
 			$self->do_method( $input );
@@ -298,7 +298,7 @@ sub process {
 			# Get many results, then return them all at the same time in an array of arrays
 			$self->db_arrayarray( $input );
 		} elsif ( $input->{action} eq 'hash' ) {
-			# Get many results, then return them all at the same time in a hash keyed off the 
+			# Get many results, then return them all at the same time in a hash keyed off the
 			# on a primary key
 			$self->db_hash( $input );
 		} elsif ( $input->{action} eq 'keyvalhash' ) {
@@ -315,7 +315,7 @@ sub process {
 			|| $self->{output}->{error} =~ m/server has gone away/i
 			|| $self->{output}->{error} =~ m/server closed the connection/i
 			|| $self->{output}->{error} =~ m/connect failed/i))) {
-			
+
 			unshift(@{$self->{queue}},$input);
 			eval { $self->{dbh}->disconnect(); };
 			$self->{reconnect} = 1;
@@ -331,7 +331,7 @@ sub commit {
 	my $id = shift->{id};
 	try {
 		$self->{dbh}->commit;
-	} catch Error with {
+	} catch {
 		$self->{output} = $self->make_error( $id, shift );
 	};
 	return ($self->{output}) ? 0 : 1;
@@ -342,7 +342,7 @@ sub begin_work {
 	my $id = shift->{id};
 	try {
 		$self->{dbh}->begin_work;
-	} catch Error with {
+	} catch {
 		$self->{output} = $self->make_error( $id, shift );
 	};
 	return ($self->{output}) ? 0 : 1;
@@ -351,7 +351,7 @@ sub begin_work {
 # This subroutine makes a generic error structure
 sub make_error {
 	my $self = shift;
-	
+
 	# Make the structure
 	my $data = { id => shift };
 
@@ -384,12 +384,12 @@ sub do_method {
 
 	# The result
 	my $result = undef;
-	
+
 	my $method = $data->{method};
 	my $dbh = $self->{dbh};
 
 	SWITCH: {
-	
+
 		if ($data->{begin_work}) {
 			$self->begin_work($data) or last SWITCH;
 		}
@@ -401,26 +401,26 @@ sub do_method {
 			} else {
 				$result = $dbh->$method();
 			}
-			
-		} catch Error with {
+
+		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
-		
+
 	}
-	
+
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
 		$self->{output} = { result => $result, id => $data->{id} };
 	}
-	
+
 	return;
 }
 
 # This subroutine does a DB QUOTE
 sub db_quote {
 	my $self = shift;
-	
+
 	# Get the input structure
 	my $data = shift;
 
@@ -430,7 +430,7 @@ sub db_quote {
 	# Quote it!
 	try {
 		$quoted = $self->{dbh}->quote( $data->{sql} );
-	} catch Error with {
+	} catch {
 		$self->{output} = $self->make_error( $data->{id}, shift );
 	};
 
@@ -464,7 +464,7 @@ sub db_single {
 		if ($data->{begin_work}) {
 			$self->begin_work($data) or last SWITCH;
 		}
-		
+
 		# Catch any errors
 		try {
 			# Make a new statement handler and prepare the query
@@ -481,13 +481,13 @@ sub db_single {
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
-				} catch Error with {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
-	
+
 			# Actually do the query!
 			try {
 				# There are warnings when joining a NULL field, which is undef
@@ -496,13 +496,13 @@ sub db_single {
 					$result = join($data->{separator},$sth->fetchrow_array());
 				} else {
 					$result = $sth->fetchrow_array();
-				}		
-			} catch Error with {
+				}
+			} catch {
 				die $sth->errstr;
 			};
-		
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
-		} catch Error with {
+
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
 	}
@@ -537,16 +537,16 @@ sub db_insert {
 
 	my @queries;
 	my @placeholders;
-	
+
 	# XXX depricate hash for insert
 	if (defined($data->{hash}) && !defined($data->{insert})) {
 		$data->{insert} = delete $data->{hash};
 	}
-		
+
 	if (defined($data->{insert}) && ref($data->{insert}) eq 'HASH') {
 		$data->{insert} = [$data->{insert}];
 	}
-	
+
 	# Check if this is a non-insert statement
 	if (defined($data->{insert}) && ref($data->{insert}) eq 'ARRAY') {
 		delete $data->{placeholders};
@@ -572,11 +572,11 @@ sub db_insert {
 		$data->{sql} = $queries[$i];
 		$data->{placeholders} = $placeholders[$i];
 		my $do_last = 0;
-		
+
 		if ($data->{begin_work} && $i == 0) {
 			$self->begin_work($data) or last;
 		}
-		
+
 		# Catch any errors
 		try {
 			# Make a new statement handler and prepare the query
@@ -586,24 +586,24 @@ sub db_insert {
 				# We use the prepare_cached method in hopes of hitting a cached one...
 				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-	
+
 			# Check for undef'ness
 			if (!defined($sth)) {
 				die 'Did not get a statement handler';
 			} else {
 				# Execute the query
 				try {
-                    $rows += $sth->execute( @{ $data->{placeholders} } );
-				} catch Error with {
+					$rows += $sth->execute( @{ $data->{placeholders} } );
+				} catch {
 					if (defined($sth->errstr)) {
 						die $sth->errstr;
 					} else {
 						die "error when trying to execute bind of placeholders in insert: $_[0]";
 					}
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
-		} catch Error with {
+		} catch {
 			my $e = shift;
 			$self->{output} = $self->make_error( $data->{id}, "failed at query #$i : $e" );
 			$do_last = 1; # can't use last here
@@ -619,7 +619,7 @@ sub db_insert {
 	if (defined($rows) && !defined($self->{output})) {
 		# Make the data structure
 		$self->{output} = { rows => $rows, result => $rows, id => $data->{id} };
-		
+
 		unless ($data->{last_insert_id}) {
 			if (defined($sth)) {
 				$sth->finish();
@@ -642,8 +642,8 @@ sub db_insert {
 					}
 				} elsif ($dsn =~ m/dbi:oracle/i) {
 					$qry = "SELECT $l->{field} FROM $l->{table}";
-                } elsif ($dsn =~ /dbi:sqlite/i) {
-                    $self->{output}->{insert_id} = $self->{dbh}->func('last_insert_rowid');
+				} elsif ($dsn =~ /dbi:sqlite/i) {
+					$self->{output}->{insert_id} = $self->{dbh}->func('last_insert_rowid');
 				} else {
 					die "EasyDBI doesn't know how to handle a last_insert_id with your dbi, contact the author.";
 				}
@@ -651,21 +651,21 @@ sub db_insert {
 				# they are supplying thier own query
 				$qry = $data->{last_insert_id};
 			}
-            
+
 			if (defined($sth)) {
 				$sth->finish();
 			}
-            
-            if ($qry) {
-    			try {
-	    			$self->{output}->{insert_id} = $self->{dbh}->selectrow_array($qry);
-		    	} catch Error with {
-			    	die $sth->error;
-    			};
-			
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
-            }
-		} catch Error with {
+
+			if ($qry) {
+				try {
+					$self->{output}->{insert_id} = $self->{dbh}->selectrow_array($qry);
+				} catch {
+					die $sth->error;
+				};
+
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			}
+		} catch {
 			# special case, insert was ok, but last_insert_id errored
 			$self->{output}->{error} = shift;
 		};
@@ -679,7 +679,7 @@ sub db_insert {
 	if (defined($sth)) {
 		$sth->finish();
 	}
-	
+
 	return;
 }
 
@@ -702,11 +702,11 @@ sub db_do {
 #	}
 
 	SWITCH: {
-	
+
 		if ($data->{begin_work}) {
 			$self->begin_work($data) or last SWITCH;
 		}
-		
+
 		# Catch any errors
 		try {
 			# Make a new statement handler and prepare the query
@@ -716,20 +716,20 @@ sub db_do {
 				# We use the prepare_cached method in hopes of hitting a cached one...
 				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-	
+
 			# Check for undef'ness
 			if (!defined($sth)) {
 				die 'Did not get a statement handler';
 			} else {
 				# Execute the query
 				try {
-                    $rows += $sth->execute( @{ $data->{placeholders} } );
-				} catch Error with {
+					$rows += $sth->execute( @{ $data->{placeholders} } );
+				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
-		} catch Error with {
+		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
 
@@ -753,7 +753,7 @@ sub db_do {
 	if (defined($sth)) {
 		$sth->finish();
 	}
-	
+
 	return;
 }
 
@@ -790,29 +790,29 @@ sub db_arrayhash {
 				# We use the prepare_cached method in hopes of hitting a cached one...
 				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-			
+
 			# Check for undef'ness
 			if (!defined($sth)) {
 				die 'Did not get a statement handler';
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
-				} catch Error with {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
-	
+
 	#		my $newdata;
 	#
 	#		# Bind the columns
 	#		try {
 	#			$sth->bind_columns( \( @$newdata{ @{ $sth->{'NAME_lc'} } } ) );
-	#		} catch Error with {
+	#		} catch {
 	#			die $sth->errstr;
 	#		};
-	
+
 			# Actually do the query!
 			try {
 				while ( my $hash = $sth->fetchrow_hashref() ) {
@@ -832,25 +832,25 @@ sub db_arrayhash {
 				}
 				# in the case that our rows == chunk
 				$self->{output} = undef;
-	
-			} catch Error with {
+
+			} catch {
 				die $sth->errstr;
 			};
-		
+
 			# XXX is dbh->err the same as sth->err?
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
 				# Premature termination!
 				die $sth->errstr;
 			}
-		} catch Error with {
+		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
-		
+
 	}
-	
+
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
@@ -865,7 +865,7 @@ sub db_arrayhash {
 	if (defined($sth)) {
 		$sth->finish();
 	}
-	
+
 	return;
 }
 
@@ -879,7 +879,7 @@ sub db_hashhash {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -888,13 +888,13 @@ sub db_hashhash {
 #	}
 
 	my (@cols, %col);
-	
+
 	SWITCH: {
 
 		if ($data->{begin_work}) {
 			$self->begin_work($data) or last SWITCH;
 		}
-		
+
 		# Catch any errors
 		try {
 			# Make a new statement handler and prepare the query
@@ -904,52 +904,52 @@ sub db_hashhash {
 				# We use the prepare_cached method in hopes of hitting a cached one...
 				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-	
+
 			# Check for undef'ness
 			if (!defined($sth)) {
 				die 'Did not get a statement handler';
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
-				} catch Error with {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
-	
+
 			# The result hash
 			my $newdata = {};
-	
+
 			# Check the primary key
 			my $foundprimary = 0;
-	
+
 			# default to the first one
 			unless (defined($data->{primary_key})) {
 				$data->{primary_key} = 1;
 			}
-	
+
 			if ($data->{primary_key} =~ m/^\d+$/) {
 				# primary_key can be a 1 based index
 				if ($data->{primary_key} > $sth->{NUM_OF_FIELDS}) {
 	#				die "primary_key ($data->{primary_key}) is out of bounds (".$sth->{NUM_OF_FIELDS}.")";
 					die "primary_key ($data->{primary_key}) is out of bounds";
 				}
-				
+
 				$data->{primary_key} = $sth->{NAME}->[($data->{primary_key}-1)];
 			}
-			
+
 			# Find the column names
 			for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
 				$col{$sth->{NAME}->[$i]} = $i;
 				push(@cols, $sth->{NAME}->[$i]);
 				$foundprimary = 1 if ($sth->{NAME}->[$i] eq $data->{primary_key});
 			}
-			
+
 			unless ($foundprimary == 1) {
 				die "primary key ($data->{primary_key}) not found";
 			}
-			
+
 			# Actually do the query!
 			try {
 				while ( my @row = $sth->fetchrow_array() ) {
@@ -966,33 +966,33 @@ sub db_hashhash {
 					if (exists($data->{chunked}) && $data->{chunked} == $rows) {
 						# Make output include the results
 						$self->{output} = {
-                            rows => $rows,
-                            result => $result,
-                            id => $data->{id},
-                            cols => [ @cols ],
-                            chunked => $data->{chunked},
-                            primary_key => $data->{primary_key}
-                        };
+							rows => $rows,
+							result => $result,
+							id => $data->{id},
+							cols => [ @cols ],
+							chunked => $data->{chunked},
+							primary_key => $data->{primary_key}
+						};
 					}
 				}
 				# in the case that our rows == chunk
 				$self->{output} = undef;
-				
-			} catch Error with {
+
+			} catch {
 				die $sth->errstr;
 			};
-			
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
-	
+
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
 				# Premature termination!
 				die $sth->errstr;
 			}
-		} catch Error with {
+		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
-		
+
 	}
 
 	# Check if we got any errors
@@ -1009,7 +1009,7 @@ sub db_hashhash {
 	if (defined($sth)) {
 		$sth->finish();
 	}
-	
+
 	return;
 }
 
@@ -1023,7 +1023,7 @@ sub db_hasharray {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1032,13 +1032,13 @@ sub db_hasharray {
 #	}
 
 	my (@cols, %col);
-	
+
 	SWITCH: {
 
 		if ($data->{begin_work}) {
 			$self->begin_work($data) or last SWITCH;
 		}
-		
+
 		# Catch any errors
 		try {
 			# Make a new statement handler and prepare the query
@@ -1048,23 +1048,23 @@ sub db_hasharray {
 				# We use the prepare_cached method in hopes of hitting a cached one...
 				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-	
+
 			# Check for undef'ness
 			if (!defined($sth)) {
 				die 'Did not get a statement handler';
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
-				} catch Error with {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
 
 			# The result hash
 			my $newdata = {};
-	
+
 			# Check the primary key
 			my $foundprimary = 0;
 
@@ -1074,21 +1074,21 @@ sub db_hasharray {
 #					die "primary_key ($data->{primary_key}) is out of bounds (".$sth->{NUM_OF_FIELDS}.")";
 					die "primary_key ($data->{primary_key}) is out of bounds";
 				}
-				
+
 				$data->{primary_key} = $sth->{NAME}->[($data->{primary_key}-1)];
 			}
-		
+
 			# Find the column names
 			for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
 				$col{$sth->{NAME}->[$i]} = $i;
 				push(@cols, $sth->{NAME}->[$i]);
 				$foundprimary = 1 if ($sth->{NAME}->[$i] eq $data->{primary_key});
 			}
-		
+
 			unless ($foundprimary == 1) {
 				die "primary key ($data->{primary_key}) not found";
 			}
-		
+
 			# Actually do the query!
 			try {
 				while ( my @row = $sth->fetchrow_array() ) {
@@ -1107,24 +1107,24 @@ sub db_hasharray {
 				}
 				# in the case that our rows == chunk
 				$self->{output} = undef;
-			
-			} catch Error with {
+
+			} catch {
 				die $sth->errstr;
 			};
-		
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
-	
+
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
 				# Premature termination!
 				die $sth->errstr;
 			}
-		} catch Error with {
+		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
-		
+
 	}
-	
+
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
@@ -1139,7 +1139,7 @@ sub db_hasharray {
 	if (defined($sth)) {
 		$sth->finish();
 	}
-	
+
 	return;
 }
 
@@ -1153,7 +1153,7 @@ sub db_array {
 	# Variables we use
 	my $sth = undef;
 	my $result = [];
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1166,7 +1166,7 @@ sub db_array {
 		if ($data->{begin_work}) {
 			$self->begin_work($data) or last SWITCH;
 		}
-		
+
 		# Catch any errors
 		try {
 			# Make a new statement handler and prepare the query
@@ -1183,19 +1183,19 @@ sub db_array {
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
-				} catch Error with {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
-	
+
 			# The result hash
 			my $newdata = {};
-			
+
 			# Actually do the query!
 			try {
-			    # There are warnings when joining a NULL field, which is undef
+				# There are warnings when joining a NULL field, which is undef
 				no warnings;
 
 				while ( my @row = $sth->fetchrow_array() ) {
@@ -1218,25 +1218,25 @@ sub db_array {
 				}
 				# in the case that our rows == chunk
 				$self->{output} = undef;
-				
-			} catch Error with {
+
+			} catch {
 				die $!;
 				#die $sth->errstr;
 			};
-			
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
-	
+
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
 				# Premature termination!
 				die $sth->errstr;
 			}
-		} catch Error with {
+		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
 
 	}
-	
+
 	# Check if we got any errors
 	if (!defined($self->{output})) {
 		# Make output include the results
@@ -1251,7 +1251,7 @@ sub db_array {
 	if (defined($sth)) {
 		$sth->finish();
 	}
-	
+
 	return;
 }
 
@@ -1265,7 +1265,7 @@ sub db_arrayarray {
 	# Variables we use
 	my $sth = undef;
 	my $result = [];
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1288,23 +1288,23 @@ sub db_arrayarray {
 				# We use the prepare_cached method in hopes of hitting a cached one...
 				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-	
+
 			# Check for undef'ness
 			if (!defined($sth)) {
 				die 'Did not get a statement handler';
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
-				} catch Error with {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
-	
+
 			# The result hash
 			my $newdata = {};
-			
+
 			# Actually do the query!
 			try {
 				while ( my @row = $sth->fetchrow_array() ) {
@@ -1324,25 +1324,25 @@ sub db_arrayarray {
 				}
 				# in the case that our rows == chunk
 				$self->{output} = undef;
-				
-			} catch Error with {
+
+			} catch {
 				die $!;
 				#die $sth->errstr;
 			};
-			
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
-	
+
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
 				# Premature termination!
 				die $sth->errstr;
 			}
-		} catch Error with {
+		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
-		
+
 	}
-	
+
 
 	# Check if we got any errors
 	if (!defined($self->{output})) {
@@ -1358,7 +1358,7 @@ sub db_arrayarray {
 	if (defined($sth)) {
 		$sth->finish();
 	}
-	
+
 	return;
 }
 
@@ -1372,7 +1372,7 @@ sub db_hash {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1395,50 +1395,50 @@ sub db_hash {
 				# We use the prepare_cached method in hopes of hitting a cached one...
 				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-	
+
 			# Check for undef'ness
 			if (!defined($sth)) {
 				die 'Did not get a statement handler';
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
-				} catch Error with {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
-	
+
 			# The result hash
 			my $newdata = {};
-			
+
 			# Actually do the query!
 			try {
-	
+
 				my @row = $sth->fetchrow_array();
-				
+
 				if (@row) {
-                    $rows = @row;
+					$rows = @row;
 					for my $i ( 0 .. $sth->{NUM_OF_FIELDS}-1 ) {
 						$result->{$sth->{NAME}->[$i]} = $row[$i];
 					}
 				}
-				
-			} catch Error with {
+
+			} catch {
 				die $sth->errstr;
 			};
-			
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
-	
+
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
 				# Premature termination!
 				die $sth->errstr;
 			}
-		} catch Error with {
+		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift );
 		};
-		
+
 	}
 
 	# Check if we got any errors
@@ -1465,7 +1465,7 @@ sub db_keyvalhash {
 	# Variables we use
 	my $sth = undef;
 	my $result = {};
-    my $rows = 0;
+	my $rows = 0;
 
 	# Check if this is a non-select statement
 #	if ( $data->{sql} !~ /^SELECT/i ) {
@@ -1478,7 +1478,7 @@ sub db_keyvalhash {
 		if ($data->{begin_work}) {
 			$self->begin_work($data) or last SWITCH;
 		}
-		
+
 		# Catch any errors
 		try {
 			# Make a new statement handler and prepare the query
@@ -1488,20 +1488,20 @@ sub db_keyvalhash {
 				# We use the prepare_cached method in hopes of hitting a cached one...
 				$sth = $self->{dbh}->prepare_cached( $data->{sql} );
 			}
-	
+
 			# Check for undef'ness
 			if (!defined($sth)) {
 				die 'Did not get a statement handler';
 			} else {
 				# Execute the query
 				try {
-                    $sth->execute( @{ $data->{placeholders} } );
-				} catch Error with {
+					$sth->execute( @{ $data->{placeholders} } );
+				} catch {
 					die ( defined($sth->errstr) ? $sth->errstr : $@ );
 				};
-                die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+				die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
 			}
-	
+
 			# Actually do the query!
 			try {
 				while (my @row = $sth->fetchrow_array()) {
@@ -1523,19 +1523,19 @@ sub db_keyvalhash {
 				}
 				# in the case that our rows == chunk
 				$self->{output} = undef;
-				
-			} catch Error with {
+
+			} catch {
 				die $sth->errstr;
 			};
-			
-            die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
-	
+
+			die $self->{dbh}->errstr if ( $self->{dbh}->errstr );
+
 			# Check for any errors that might have terminated the loop early
 			if ( $sth->err() ) {
 				# Premature termination!
 				die $sth->errstr;
 			}
-		} catch Error with {
+		} catch {
 			$self->{output} = $self->make_error( $data->{id}, shift);
 		};
 
@@ -1555,14 +1555,14 @@ sub db_keyvalhash {
 	if (defined($sth)) {
 		$sth->finish();
 	}
-	
+
 	return;
 }
 
 # Prints any output to STDOUT
 sub output {
 	my $self = shift;
-	
+
 	# Get the data
 	my $data = shift || undef;
 
@@ -1572,13 +1572,13 @@ sub output {
 		# TODO use this at some point
 		$self->{error} = undef;
 	}
-	
+
 	# Freeze it!
 	my $outdata = $self->{filter}->put( [ $data ] );
 
 	# Print it!
 	print STDOUT @$outdata;
-	
+
 	return;
 }
 

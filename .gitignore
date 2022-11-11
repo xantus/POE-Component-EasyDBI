@@ -1,9 +1,12 @@
-META.yml
+META.*
+!META.json
 MYMETA.*
 Makefile
 inc/
 pm_to_blib
 blib/
+*.bak
 *~
 .*
 !.gitignore
+/POE-Component-EasyDBI-*
